@@ -1,0 +1,123 @@
+/* Trading Agent Mpu Gandring design tokens. Every color, font and motion value lives here. */
+:root,
+[data-theme='day'] {
+  /* page and panels */
+  --bg: #f2efe6;
+  --bg-2: #e8e4d8;
+  --panel: #fffcf5;
+  --panel-2: #f1eee3;
+  --line: #ddd8c9;
+  --shadow-color: 92, 58, 30;
+
+  /* text */
+  --ink: #3b2a1e;
+  --text: #343d32;
+  --text-dim: #646957;
+  --text-faint: #707462;
+
+  /* warm accents */
+  --cream: #fff6e6;
+  --cream-deep: #f1dfbd;
+  --wood: #c08552;
+  --wood-dark: #795135;
+  --sage: #8fb39a;
+  --sage-deep: #45684c;
+  --terracotta: #d9774f;
+  --rose: #e8a3a0;
+  --teal: #397970;
+  --brass: #c99a3b;
+  --long: #3f9a6b;
+  --short: #d0583f;
+  --neutral: #9b8b78;
+  --warn: #d98a2b;
+  --hit: #e2553f;
+
+  /* office scene */
+  --wall: #f6e7cc;
+  --wall-dot: #ead4ad;
+  --wainscot: #d8b083;
+  --shelf-back: #6f4627;
+  --floor: #d9a874;
+  --floor-alt: #cf9a64;
+  --floor-line: #b98552;
+  --rug: #d9876a;
+  --rug-edge: #b8664a;
+  --rug-pattern: #f6dcc0;
+  --sky-top: #ffd9a8;
+  --sky-bottom: #f6a77c;
+  --sun: #fff1b8;
+  --hill: #c98b6b;
+  --machine: #5b4a3f;
+  --lamp-glow: #ffd27a;
+  --desk-top: #c58b58;
+  --desk-front: #a8703f;
+  --screen: #2e3b36;
+
+  /* charts */
+  --chart-text: #5a4634;
+  --chart-grid: rgba(139, 90, 51, 0.12);
+  --chart-axis: rgba(139, 90, 51, 0.35);
+  --chart-cross: rgba(59, 42, 30, 0.45);
+
+  /* type */
+  --font-ui: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-head: 'Outfit', 'Nunito', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --font-comic: 'Bangers', 'Impact', 'Arial Black', sans-serif;
+  --fs-xs: 11.5px;
+  --fs-sm: 13px;
+  --fs-md: 14.5px;
+  --fs-lg: 18px;
+  --fs-xl: 25px;
+
+  /* shape */
+  --radius-sm: 10px;
+  --radius: 14px;
+  --radius-lg: 22px;
+  --shadow: 0 8px 24px rgba(var(--shadow-color), 0.12), 0 2px 6px rgba(var(--shadow-color), 0.08);
+
+  /* motion */
+  --walk: 900ms cubic-bezier(0.5, 0.05, 0.3, 1);
+  --fast: 160ms ease;
+}
+
+[data-theme='night'] {
+  color-scheme: dark;
+  --long: #76cba0;
+  --short: #f0806a;
+  --bg: #191b1e;
+  --bg-2: #141619;
+  --panel: #23262a;
+  --panel-2: #2d3035;
+  --line: #45484e;
+  --shadow-color: 10, 5, 15;
+  --ink: #2a1d14;
+  --text: #f2ede7;
+  --text-dim: #c6c1ba;
+  --text-faint: #aaa59e;
+  --wood-dark: #ed9b56;
+  --sage-deep: #ed9b56;
+  --teal: #ed9b56;
+  --cream: #f3e4c8;
+  --wall: #292b2e;
+  --wall-dot: #34363a;
+  --wainscot: #6a4a3a;
+  --shelf-back: #3a2618;
+  --floor: #8a6040;
+  --floor-alt: #7f5739;
+  --floor-line: #6a472e;
+  --rug: #a5594a;
+  --rug-edge: #874538;
+  --rug-pattern: #d9b49a;
+  --sky-top: #161a21;
+  --sky-bottom: #343a45;
+  --sun: #f4f0d0;
+  --hill: #252a31;
+  --lamp-glow: #ffbf5e;
+  --desk-top: #8f6240;
+  --desk-front: #744d30;
+  --chart-text: #e7d6c1;
+  --chart-grid: rgba(255, 230, 200, 0.08);
+  --chart-axis: rgba(255, 230, 200, 0.25);
+  --chart-cross: rgba(255, 230, 200, 0.45);
+}

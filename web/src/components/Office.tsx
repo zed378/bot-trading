@@ -1,0 +1,499 @@
+import { Fragment, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import type { AgentId, AgentView, CendolEvent, DeskState, Fight, Reaction, Speech } from '../types';
+import { AGENT_ORDER } from '../types';
+import { Bot, type Face, type Pose } from './Bot';
+import { Sparkline } from './MiniCharts';
+import { WORKSTATIONS, FIGHT_STAGE, workstationPoint, atDiscussionTable, officePositions, heatedDebateFight, officePnl, route, type Activity, type Point, type SceneEvent } from '../sceneDirector';
+import { useSceneDirector } from '../useSceneDirector';
+import { DESK_SETS } from '../officeSets';
+import { useI18n } from '../i18n';
+import { fmt } from './format';
+import { OfficeDiscussion } from './OfficeDiscussion';
+import '../styles/office-v2.css';
+
+const POW_WORDS = ['GEBUK!', 'POW!', 'BONK!', 'DUAR!', 'PLAK!', 'BLETAK!', 'BAM!', 'AMPUN!', 'HAJAR!', 'JEDER!'];
+const asset = (name: string) => `/office-assets/${name}.webp`;
+const DESK_LABEL: Record<AgentId, string> = {
+  lead: 'Desk lead',
+  market: 'Market watch',
+  research: 'Research library',
+  strategist: 'Strategy desk',
+  risk: 'Risk review',
+  execution: 'Execution desk',
+};
+
+interface Props {
+  children?: ReactNode;
+  state: DeskState;
+  sceneEvents: SceneEvent[];
+  speech: Partial<Record<AgentId, Speech>>;
+  fights: Fight[];
+  reactions: Partial<Record<AgentId, Reaction>>;
+  disagreement: number;
+  selected: AgentId | null;
+  spark: number[];
+  onSelect: (id: AgentId) => void;
+  command?: (text: string, agent?: AgentId) => Promise<{ ok: boolean; reply?: string }>;
+  activeConversationId?: string;
+  selectConversation?: (id: string) => void;
+  newConversation?: () => Promise<string>;
+  deleteConversation?: (id: string) => Promise<void>;
+  cendolBanner?: CendolEvent | null;
+  onDismissCendol?: () => void;
+}
+
+function useOfficeFight(state: DeskState, fights: Fight[]) {
+  const [clock, setClock] = useState({ now: 0, reduced: true, hidden: true });
+  const debating = Boolean(state.debate);
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const update = () => setClock({ now: Date.now(), reduced: media.matches, hidden: document.hidden });
+    update();
+    const timer = debating ? window.setInterval(update, 500) : undefined;
+    media.addEventListener('change', update);
+    document.addEventListener('visibilitychange', update);
+    return () => {
+      window.clearInterval(timer);
+      media.removeEventListener('change', update);
+      document.removeEventListener('visibilitychange', update);
+    };
+  }, [debating]);
+  const recent = fights.at(-1);
+  const hasRecentFight = Boolean(recent && clock.now >= recent.at && clock.now - recent.at < 3000);
+  const isDebatePhase = Boolean(state.debate && (
+    /^round \d+$/.test(state.debate.phase) ||
+    state.debate.phase.startsWith('challenge') ||
+    ['gathering', 'debate', 'execution review', 'risk gate', 'verdict', 'position risk review'].includes(state.debate.phase)
+  ));
+  if ((!debating && !hasRecentFight) || (!isDebatePhase && !hasRecentFight) || state.killed || state.paused || clock.reduced || clock.hidden) return undefined;
+  return hasRecentFight && recent ? recent : heatedDebateFight(state, clock.now) ?? undefined;
+}
+
+function poseFor(a: AgentView, fight: Fight | undefined, reaction: Reaction | undefined, inDebate: boolean, activeFight?: Fight): { pose: Pose; face: Face } {
+  if (fight?.from === a.id) return { pose: 'punch', face: 'angry' };
+  if (fight?.to === a.id) return { pose: 'guard', face: 'dizzy' };
+  if (reaction === 'cheer') return { pose: 'cheer', face: 'happy' };
+  if (reaction === 'worried') return { pose: 'think', face: 'worried' };
+  if (activeFight && activeFight.from !== a.id && activeFight.to !== a.id) {
+    return { pose: 'think', face: 'worried' };
+  }
+  switch (a.status) {
+    case 'reading': return { pose: 'read', face: 'normal' };
+    case 'thinking': return { pose: 'think', face: 'normal' };
+    case 'typing':
+    case 'executing':
+    case 'journaling': return { pose: 'type', face: 'normal' };
+    case 'arguing': return { pose: 'argue', face: 'normal' };
+    case 'fighting': return { pose: 'punch', face: 'angry' };
+    default: return { pose: inDebate ? 'sit' : 'idle', face: 'normal' };
+  }
+}
+
+function useMovement(pos: Point, desks: Point[], staged = false, fast = false) {
+  const anchor = useRef<HTMLDivElement>(null);
+  const previous = useRef(pos);
+  const wasStaged = useRef(false);
+  const [walk, setWalk] = useState({ on: false, left: false });
+  const geometry = desks.map((d) => `${d.x},${d.y}`).join(';');
+  useEffect(() => {
+    const el = anchor.current;
+    if (!el) return;
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const from = previous.current;
+    const changingStage = staged || wasStaged.current;
+    wasStaged.current = staged;
+    if (from.x === pos.x && from.y === pos.y) {
+      el.style.transform = `translate(${pos.x}%, ${pos.y}%)`;
+      return;
+    }
+    const path = changingStage ? [from, pos] : route(from, pos, desks);
+    const target = path.at(-1)!;
+    previous.current = target;
+    const distance = path.slice(1).reduce((d, p, i) => d + Math.hypot(p.x - path[i].x, p.y - path[i].y), 0);
+    const duration = media.matches || document.hidden ? 0 : changingStage ? 400 : Math.min(fast ? 1000 : 2500, Math.max(600, distance * 65));
+    setWalk({ on: duration > 0 && path.length > 1 && !staged, left: target.x < from.x });
+    let travelled = 0;
+    const frames = path.map((p, i) => {
+      if (i) travelled += Math.hypot(p.x - path[i - 1].x, p.y - path[i - 1].y);
+      return { transform: `translate(${p.x}%, ${p.y}%)`, offset: distance ? travelled / distance : i / Math.max(1, path.length - 1) };
+    });
+    const animation = el.animate(frames, { duration, easing: 'ease-in-out', fill: 'forwards' });
+    animation.onfinish = () => {
+      el.style.transform = `translate(${target.x}%, ${target.y}%)`;
+      setWalk((w) => ({ ...w, on: false }));
+    };
+    const reduce = () => {
+      if (media.matches || document.hidden) animation.finish();
+    };
+    media.addEventListener('change', reduce);
+    document.addEventListener('visibilitychange', reduce);
+    return () => {
+      const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+      const parent = el.parentElement;
+      if (parent?.clientWidth && parent.clientHeight) {
+        previous.current = { x: (matrix.m41 / parent.clientWidth) * 100, y: (matrix.m42 / parent.clientHeight) * 100 };
+      }
+      el.style.transform = getComputedStyle(el).transform;
+      animation.cancel();
+      media.removeEventListener('change', reduce);
+      document.removeEventListener('visibilitychange', reduce);
+    };
+  }, [pos.x, pos.y, geometry, staged, fast]);
+  return { anchor, walk };
+}
+
+function Agent({
+  a,
+  pos,
+  activity,
+  desks,
+  sp,
+  fight,
+  reaction,
+  inDebate,
+  selected,
+  activeFight,
+  fast,
+  onSelect,
+}: {
+  a: AgentView;
+  pos: Point;
+  activity: Activity;
+  desks: Point[];
+  sp?: Speech;
+  fight?: Fight;
+  reaction?: Reaction;
+  inDebate: boolean;
+  selected: boolean;
+  activeFight?: Fight;
+  fast: boolean;
+  onSelect: () => void;
+}) {
+  const { anchor, walk } = useMovement(pos, desks, Boolean(activeFight), fast);
+  let { pose, face } = fight || reaction || activeFight ? poseFor(a, fight, reaction, inDebate, activeFight) : activity;
+
+  if (walk.on && !fight) pose = 'walk';
+  // Face the opponent when punching, face travel direction when walking
+  let flip = false;
+  if (fight) {
+    const hit = FIGHT_STAGE.to;
+    const from = FIGHT_STAGE.from;
+    if (fight.from === a.id) flip = hit.x < from.x;
+    else if (fight.to === a.id) flip = from.x < hit.x;
+  } else if (walk.on && walk.left) flip = true;
+  else if (activity.facing) flip = activity.facing === 'left';
+  const talking = !!sp && !sp.done;
+  const isPunching = fight?.from === a.id;
+  const isHit = fight?.to === a.id;
+  const label = walk.on ? 'walking' : fight ? 'cartoon sparring' : activeFight ? 'watching the debate' : activity.label;
+  const layerY = walk.on ? Math.max(pos.y, WORKSTATIONS[a.id].y) : pos.y;
+  const seat = workstationPoint(a.id);
+  const seated = !walk.on && pos.x === seat.x && pos.y === seat.y;
+  return (
+    <div ref={anchor} className="agent-anchor" data-agent={a.id} style={{ zIndex: Math.round(layerY * 10) + (sp ? 400 : 0) }}>
+      <button
+        className={`agent status-${a.status} ${selected ? 'is-selected' : ''} ${isPunching ? 'is-punching' : ''} ${isHit ? 'is-hit' : ''} ${isPunching || isHit ? 'in-dust-brawl' : ''} ${seated ? 'at-desk' : ''} ${pos.y < 48 ? 'bubble-below' : ''} ${pos.x < 25 ? 'bubble-left' : pos.x > 75 ? 'bubble-right' : ''}`}
+        style={{ zIndex: Math.round(layerY * 10) + (sp ? 400 : 0) + (isPunching || isHit ? 250 : 0), ['--agent' as string]: a.color }}
+        onClick={onSelect}
+        aria-label={`${a.name}, ${label}`}
+        data-activity={pose}
+      >
+        {a.status === 'thinking' && !sp && (
+          <div className="think">
+            <i />
+            <i />
+            <i />
+          </div>
+        )}
+        {sp && sp.text.includes('Terima kasih traktiran cendolnya') && (
+          <div className="cendol-speech-tag" role="status">
+            <img src="https://edge-cdn.trakteer.id/images/embed/trbtn-icon.png?v=14-05-2025" alt="" className="cendol-speech-icon" />
+            <span>{sp.text}</span>
+          </div>
+        )}
+        <div className={`bot-wrap ${flip ? 'flip' : ''}`}>
+          <Bot id={a.id} size={62} pose={pose} face={face} talking={talking || Boolean(sp && sp.text.includes('Terima kasih traktiran cendolnya'))} />
+        </div>
+        <div className="nametag">
+          <strong>{a.name}</strong>
+          <span className="status">
+            <i className="dot" />
+            {label}
+          </span>
+          {a.stance && inDebate && (
+            <span className={`stance s-${a.stance}`}>
+              {a.stance}
+              {a.confidence != null ? ` ${a.confidence > 1 ? Math.round(a.confidence) : Math.round(a.confidence * 100)}%` : ''}
+            </span>
+          )}
+        </div>
+      </button>
+    </div>
+  );
+}
+
+export function Office({ state, sceneEvents, speech, fights, reactions, disagreement, selected, spark, onSelect, command, children, activeConversationId, selectConversation, newConversation, deleteConversation, cendolBanner, onDismissCendol }: Props) {
+  const { t } = useI18n();
+  const [motionPaused, setMotionPaused] = useState(false);
+  const officeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const office = officeRef.current;
+    const stage = office?.parentElement;
+    const roster = stage?.querySelector<HTMLElement>('.desk-team');
+    if (!office || !stage || !roster) return;
+    const fit = () => {
+      const top = office.getBoundingClientRect().top + window.scrollY;
+      const gap = parseFloat(getComputedStyle(stage).rowGap) || 0;
+      const height = window.innerHeight - top - roster.offsetHeight - gap - 16;
+      office.style.setProperty('--office-fit-height', `${Math.max(180, height)}px`);
+    };
+    const observer = new ResizeObserver(fit);
+    observer.observe(stage);
+    observer.observe(roster);
+    const header = document.querySelector('.topbar');
+    if (header) observer.observe(header);
+    window.addEventListener('resize', fit);
+    fit();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', fit);
+    };
+  }, []);
+  const activities = useSceneDirector(state, sceneEvents, motionPaused);
+  const inDebate = !!state.debate;
+  const atTable = atDiscussionTable(state.debate?.phase);
+  const heat = Math.min(1, disagreement);
+  const up = spark.length > 1 && spark.at(-1)! >= spark[0];
+  const latestSpeech = (Object.values(speech).filter(Boolean) as Speech[])
+    .filter(item => (item.conversationId ?? 'office') === (activeConversationId || 'office'))
+    .sort((a, b) => b.at - a.at)[0];
+  const activeFight = useOfficeFight(state, fights);
+  const displayFights = activeFight ? [activeFight] : [];
+  const pnl = officePnl(state);
+
+  const positions = officePositions(state, activities, activeFight);
+
+  return (
+    <div ref={officeRef} className={`office office-v2 ${inDebate ? 'is-debating' : ''} ${displayFights.length ? 'is-brawling' : ''} ${motionPaused ? 'motion-paused' : ''}`} style={{ ['--heat' as string]: heat }}>
+      <output className="office-pnl" aria-label={`Open PnL, ${pnl.source}`} title="Unrealized PnL of open positions in USDT. Local estimates are not confirmed exchange results.">
+        <span>Open PnL</span>
+        <strong className={pnl.value == null ? '' : pnl.value >= 0 ? 'up' : 'down'}>
+          {pnl.value == null ? 'Unavailable' : `${pnl.value >= 0 ? '+' : ''}${fmt(pnl.value)}`} <small>USDT</small>
+        </strong>
+        {pnl.source.includes('stale') && <small>Stale data</small>}
+      </output>
+      <div className="office-hud">{children}</div>
+      {cendolBanner && (
+        <div className="office-cendol-banner" role="status" aria-live="polite">
+          <img
+            src="https://edge-cdn.trakteer.id/images/embed/trbtn-icon.png?v=14-05-2025"
+            alt="Cendol"
+            className="cendol-banner-icon"
+          />
+          <div className="cendol-banner-content">
+            <strong>Terima kasih traktiran cendolnya!</strong>
+            <span>
+              <b>{cendolBanner.supporter}</b> mentraktir <b>{cendolBanner.quantity} Cendol</b>
+              {cendolBanner.message ? ` · "${cendolBanner.message}"` : ''}
+            </span>
+          </div>
+          {onDismissCendol && (
+            <button type="button" className="cendol-banner-close" onClick={onDismissCendol} aria-label="Close notification">✕</button>
+          )}
+        </div>
+      )}
+      <div className="office-world" data-debate-phase={state.debate?.phase ?? 'idle'}>
+        <button className="office-motion" aria-pressed={motionPaused} onClick={() => setMotionPaused(!motionPaused)}>{motionPaused ? 'Resume animation' : 'Pause animation'}</button>
+        <div className="studio-room" aria-hidden="true">
+          <div className="studio-wall" />
+          <div className="studio-floor" />
+          <div className="studio-ceiling-beam" />
+          <div className="studio-library">
+            <img className="studio-shelf" src={asset('mg_prop_bookshelf')} alt="" />
+          </div>
+          <img className="studio-vine vine-west" src={asset('mg_prop_plant_hanging')} alt="" />
+          <div className="studio-window window-west">
+            <img src={asset('mg_prop_window_frame')} alt="" />
+            <span />
+          </div>
+          <div className="studio-wall-board">
+            <img src={asset('mg_prop_whiteboard')} alt="" />
+            <div>
+              <span>{t('analysisBoardText')}</span>
+              {spark.length > 1 ? <Sparkline values={spark} up={up} /> : <img className="board-reference" src={asset('mg_icon_trend_analysis')} alt="" />}
+              <i />
+              <i />
+            </div>
+          </div>
+          <img className="studio-sconce sconce-west" src={asset('mg_env_wall_sconce')} alt="" />
+          <div className="studio-sign">
+            <img src="/mpu-gandring-logo.webp" alt="" />
+          </div>
+          <img className="studio-sconce sconce-east" src={asset('mg_env_wall_sconce')} alt="" />
+          <div className="studio-wall-clock">
+            <img src={asset('mg_prop_wall_clock')} alt="" />
+            <span className="clock-hands" />
+          </div>
+          <div className="studio-window window-east">
+            <img src={asset('mg_prop_window_frame')} alt="" />
+            <span />
+          </div>
+          <img className="studio-vine vine-east" src={asset('mg_prop_plant_hanging')} alt="" />
+          <div className="studio-coffee">
+            <img src={asset('mg_prop_coffee_counter')} alt="" />
+            <img className="coffee-cup" src={asset('mg_item_coffee_mug_dustyblue')} alt="" />
+            <img className="coffee-steam" src={asset('mg_fx_coffee_steam')} alt="" />
+          </div>
+          <img className="studio-pendant" src={asset('mg_env_pendant_lamp')} alt="" />
+          <div className="studio-sunlight" />
+          <div className="studio-sunlight sunlight-east" />
+          <div className="studio-rug">
+            <img src={asset('mg_prop_office_rug')} alt="" />
+          </div>
+          <img className="studio-lamp lamp-west" src={asset('mg_prop_floor_lamp')} alt="" />
+          <img className="studio-lamp lamp-east" src={asset('mg_prop_floor_lamp')} alt="" />
+          <img className="studio-plant plant-west" src={asset('mg_prop_plant_floor')} alt="" />
+          <img className="studio-plant plant-east" src={asset('mg_prop_plant_desktop')} alt="" />
+        </div>
+        <div className="studio-meeting" style={{ left: '50%', top: '65%' }} aria-label="Agent discussion table">
+          <img src={asset('mg_prop_debate_table')} alt="" />
+          <div className="studio-table-inlay">
+            <img src={asset('mg_item_keris_ornament')} alt="" />
+          </div>
+          <img className="meeting-cup cup-left" src={asset('mg_item_coffee_mug_sage')} alt="" />
+          <img className="meeting-cup cup-right" src={asset('mg_item_coffee_mug_terracotta')} alt="" />
+          <img className="meeting-book" src={asset('mg_item_strategy_notebook')} alt="" />
+          <img className="meeting-plant" src={asset('mg_prop_plant_succulent')} alt="" />
+        </div>
+
+        {AGENT_ORDER.map((id) => {
+          const a = state.agents[id];
+          const desk = WORKSTATIONS[id];
+          const busy = !atTable && a.status !== 'idle';
+          const set = DESK_SETS[id];
+          const sideClass = desk.x === 50 ? 'desk-center' : desk.x > 50 ? 'desk-east' : 'desk-west';
+          return (
+            <Fragment key={`desk-${id}`}>
+              <img className={`studio-seat ${sideClass}`} src={asset('mg_chair_diagonal_v3')} alt="" aria-hidden="true"
+                style={{ left: `${desk.x + (desk.x < 50 ? -3 : 3)}%`, top: `${desk.y - 1}%`, zIndex: Math.round(desk.y * 10) - 80 }} />
+              <div
+                data-desk={id}
+                className={`studio-desk ${sideClass} ${busy ? 'is-busy' : ''}`}
+                style={{
+                  left: `${desk.x}%`,
+                  top: `${desk.y}%`,
+                  zIndex: Math.round(desk.y * 10) + 5,
+                  width: `${set.width ?? 17}%`,
+                  ['--desk-aspect' as string]: set.aspect,
+                  ['--agent' as string]: a.color,
+                }}
+                aria-hidden="true"
+              >
+                <div className="studio-desk-furniture">
+                  <img className="studio-desk-wood" src={asset(set.base)} alt="" />
+                  {set.screen && (
+                    <div
+                      className="studio-builtin-screen"
+                      style={{
+                        left: `${set.screen.x}%`,
+                        top: `${set.screen.y}%`,
+                        width: `${set.screen.width}%`,
+                        height: `${set.screen.height}%`,
+                      }}
+                    >
+                      {spark.length > 1 && <Sparkline values={spark} up={up} />}
+                    </div>
+                  )}
+                  {set.monitor && (
+                    <div className="studio-monitor" style={{ left: `${set.monitor.x}%`, top: `${set.monitor.y}%`, width: `${set.monitor.width}%` }}>
+                      <svg className="studio-monitor-frame" viewBox="0 0 100 78" aria-hidden="true">
+                        <path d="M44 54h12l4 17 14 3v4H27v-4l15-3z" fill="#71523b" />
+                        <rect x="1" y="1" width="98" height="61" rx="5" fill="#4a3c31" stroke="#bb9467" strokeWidth="3" />
+                        <path d="M7 8h86v46H7z" fill="#263331" />
+                        <circle cx="89" cy="58" r="1.5" fill="#dba76b" />
+                      </svg>
+                      {spark.length > 1 && (
+                        <div className="studio-screen">
+                          <Sparkline values={spark} up={up} />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {set.props.map((prop) => (
+                    <img
+                      key={prop.asset}
+                      className="studio-desk-prop"
+                      src={asset(prop.asset)}
+                      alt=""
+                      style={{
+                        left: `${prop.x}%`,
+                        top: `${prop.y}%`,
+                        width: `${prop.width}%`,
+                        transform: prop.rotate ? `rotate(${prop.rotate}deg)` : undefined,
+                      }}
+                    />
+                  ))}
+                  <span className="studio-desk-name">{DESK_LABEL[id]}</span>
+                </div>
+              </div>
+            </Fragment>
+          );
+        })}
+
+        {AGENT_ORDER.map((id) => {
+          const f = activeFight && (activeFight.from === id || activeFight.to === id) ? activeFight : undefined;
+          return (
+            <Agent
+              key={id}
+              a={state.agents[id]}
+              pos={positions[id]}
+              activity={activities[id]}
+              desks={AGENT_ORDER.map((deskId) => WORKSTATIONS[deskId])}
+              sp={latestSpeech?.agent === id ? latestSpeech : undefined}
+              fight={f}
+              reaction={reactions[id]}
+              inDebate={inDebate}
+              selected={selected === id}
+              activeFight={activeFight}
+              fast={(state.debate?.mode ?? state.debateMode) === 'fast'}
+              onSelect={() => onSelect(id)}
+            />
+          );
+        })}
+
+        {displayFights.map((f) => {
+          const to = FIGHT_STAGE.to;
+          const from = FIGHT_STAGE.from;
+          const cx = (from.x + to.x) / 2;
+          const cy = to.y - 12;
+          const word1 = POW_WORDS[Math.abs(f.id) % POW_WORDS.length];
+          const word2 = POW_WORDS[(Math.abs(f.id) + 3) % POW_WORDS.length];
+          return (
+            <div key={f.id} className="brawl-zone" style={{ left: `${cx}%`, top: `${cy}%`, ['--i' as string]: f.intensity }}>
+              <div className="brawl-art">
+                <div className="brawl-dust-cloud" aria-hidden="true">
+                  <img className="combat-cloud cloud-main" src={asset('mg_fx_fight_smoke_soft')} alt="" />
+                  <img className="combat-cloud cloud-roll" src={asset('mg_fx_fight_smoke_brawl')} alt="" />
+                  <img className="combat-impact impact-left" src={asset('mg_fx_thinking_sparkles')} alt="" />
+                  <img className="combat-impact impact-right" src={asset('mg_fx_execution_flash')} alt="" />
+                  {Array.from({ length: 8 }, (_, idx) => (
+                    <img key={idx} className={`brawl-limb l-${idx + 1}`} src={asset('mg_fx_thinking_sparkles')} alt="" />
+                  ))}
+                </div>
+                <div className="pow pow-main">
+                  <span>{word1}</span>
+                </div>
+                <div className="pow pow-sub">
+                  <span>{word2}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        <OfficeDiscussion state={state} latest={latestSpeech} onSelect={onSelect} command={command} activeConversationId={activeConversationId} onSelectConversation={selectConversation} onNewConversation={newConversation} onDeleteConversation={deleteConversation} />
+      </div>
+    </div>
+  );
+}

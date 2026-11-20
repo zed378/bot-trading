@@ -1,0 +1,447 @@
+[
+  {
+    "file": "mg_env_floorboard_tile.webp",
+    "source": "mg_batch_f/mg_env_floorboard_tile.png",
+    "referenceImage": "mg_batch_f_catalog.jpg",
+    "referenceCrop": "148,0,296,148",
+    "sourceWidth": 91,
+    "sourceHeight": 73,
+    "bytes": 682
+  },
+  {
+    "file": "mg_env_pendant_lamp.webp",
+    "source": "mg_batch_f/mg_env_pendant_lamp.png",
+    "referenceImage": "mg_batch_f_catalog.jpg",
+    "referenceCrop": "592,148,740,296",
+    "sourceWidth": 56,
+    "sourceHeight": 100,
+    "bytes": 1172
+  },
+  {
+    "file": "mg_env_view_fill.webp",
+    "source": "mg_batch_f/mg_env_view_fill.png",
+    "referenceImage": "mg_batch_f_catalog.jpg",
+    "referenceCrop": "148,444,296,592",
+    "sourceWidth": 138,
+    "sourceHeight": 140,
+    "bytes": 4086
+  },
+  {
+    "file": "mg_env_wall_sconce.webp",
+    "source": "mg_batch_f/mg_env_wall_sconce.png",
+    "referenceImage": "mg_batch_f_catalog.jpg",
+    "referenceCrop": "296,148,444,296",
+    "sourceWidth": 40,
+    "sourceHeight": 82,
+    "bytes": 1138
+  },
+  {
+    "file": "mg_fx_coffee_steam.webp",
+    "source": "mg_batch_e/mg_fx_coffee_steam.png",
+    "referenceImage": "mg_batch_e_catalog.jpg",
+    "referenceCrop": "672,0,840,168",
+    "sourceWidth": 151,
+    "sourceHeight": 146,
+    "bytes": 2126
+  },
+  {
+    "file": "mg_fx_execution_flash.webp",
+    "source": "mg_batch_e/mg_fx_execution_flash.png",
+    "referenceImage": "mg_batch_e_catalog.jpg",
+    "referenceCrop": "0,168,168,336",
+    "sourceWidth": 43,
+    "sourceHeight": 73,
+    "bytes": 984
+  },
+  {
+    "file": "mg_fx_fight_smoke_brawl.webp",
+    "source": "mg_batch_e/mg_fx_fight_smoke_brawl.png",
+    "referenceImage": "mg_fx_fight_smoke_brawl.jpg",
+    "referenceCrop": "",
+    "sourceWidth": 982,
+    "sourceHeight": 828,
+    "bytes": 77520
+  },
+  {
+    "file": "mg_fx_fight_smoke_soft.webp",
+    "source": "mg_batch_e/mg_fx_fight_smoke_soft.png",
+    "referenceImage": "mg_fx_fight_smoke_soft.jpg",
+    "referenceCrop": "",
+    "sourceWidth": 916,
+    "sourceHeight": 742,
+    "bytes": 46314
+  },
+  {
+    "file": "mg_fx_thinking_sparkles.webp",
+    "source": "mg_batch_e/mg_fx_thinking_sparkles.png",
+    "referenceImage": "mg_batch_e_catalog.jpg",
+    "referenceCrop": "0,0,168,168",
+    "sourceWidth": 72,
+    "sourceHeight": 61,
+    "bytes": 1608
+  },
+  {
+    "file": "mg_icon_trend_analysis.webp",
+    "source": "mg_batch_c/mg_icon_trend_analysis.png",
+    "referenceImage": "mg_batch_c_catalog.jpg",
+    "referenceCrop": "168,168,336,336",
+    "sourceWidth": 96,
+    "sourceHeight": 84,
+    "bytes": 1852
+  },
+  {
+    "file": "mg_item_analyst_headset.webp",
+    "source": "mg_batch_b/mg_item_analyst_headset.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "366,0,549,183",
+    "sourceWidth": 92,
+    "sourceHeight": 118,
+    "bytes": 2546
+  },
+  {
+    "file": "mg_item_approval_stamp.webp",
+    "source": "mg_batch_b/mg_item_approval_stamp.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "183,183,366,366",
+    "sourceWidth": 74,
+    "sourceHeight": 106,
+    "bytes": 1908
+  },
+  {
+    "file": "mg_item_bookmarks.webp",
+    "source": "mg_batch_b/mg_item_bookmarks.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "183,548,366,731",
+    "sourceWidth": 127,
+    "sourceHeight": 131,
+    "bytes": 3748
+  },
+  {
+    "file": "mg_item_cactus_ornament.webp",
+    "source": "mg_batch_b/mg_item_cactus_ornament.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "1097,366,1280,548",
+    "sourceWidth": 82,
+    "sourceHeight": 123,
+    "bytes": 2552
+  },
+  {
+    "file": "mg_item_coffee_mug_dustyblue.webp",
+    "source": "mg_batch_b/mg_item_coffee_mug_dustyblue.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "0,366,183,548",
+    "sourceWidth": 119,
+    "sourceHeight": 102,
+    "bytes": 2074
+  },
+  {
+    "file": "mg_item_coffee_mug_sage.webp",
+    "source": "mg_batch_b/mg_item_coffee_mug_sage.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "1097,183,1280,366",
+    "sourceWidth": 119,
+    "sourceHeight": 101,
+    "bytes": 1660
+  },
+  {
+    "file": "mg_item_coffee_mug_terracotta.webp",
+    "source": "mg_batch_b/mg_item_coffee_mug_terracotta.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "914,183,1097,366",
+    "sourceWidth": 119,
+    "sourceHeight": 101,
+    "bytes": 2104
+  },
+  {
+    "file": "mg_item_desk_bell.webp",
+    "source": "mg_batch_b/mg_item_desk_bell.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "366,548,549,731",
+    "sourceWidth": 66,
+    "sourceHeight": 82,
+    "bytes": 1722
+  },
+  {
+    "file": "mg_item_desk_lantern.webp",
+    "source": "mg_batch_b/mg_item_desk_lantern.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "914,548,1097,731",
+    "sourceWidth": 63,
+    "sourceHeight": 113,
+    "bytes": 2088
+  },
+  {
+    "file": "mg_item_execution_stopwatch.webp",
+    "source": "mg_batch_b/mg_item_execution_stopwatch.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "549,183,731,366",
+    "sourceWidth": 90,
+    "sourceHeight": 116,
+    "bytes": 2442
+  },
+  {
+    "file": "mg_item_keris_ornament.webp",
+    "source": "mg_batch_b/mg_item_keris_ornament.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "183,0,366,183",
+    "sourceWidth": 72,
+    "sourceHeight": 143,
+    "bytes": 2216
+  },
+  {
+    "file": "mg_item_leadership_journal.webp",
+    "source": "mg_batch_b/mg_item_leadership_journal.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "0,0,183,183",
+    "sourceWidth": 80,
+    "sourceHeight": 106,
+    "bytes": 1660
+  },
+  {
+    "file": "mg_item_market_tablet.webp",
+    "source": "mg_batch_b/mg_item_market_tablet.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "549,0,731,183",
+    "sourceWidth": 97,
+    "sourceHeight": 82,
+    "bytes": 1600
+  },
+  {
+    "file": "mg_item_reading_glasses.webp",
+    "source": "mg_batch_b/mg_item_reading_glasses.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "914,0,1097,183",
+    "sourceWidth": 131,
+    "sourceHeight": 52,
+    "bytes": 2036
+  },
+  {
+    "file": "mg_item_rolled_chart.webp",
+    "source": "mg_batch_b/mg_item_rolled_chart.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "0,548,183,731",
+    "sourceWidth": 121,
+    "sourceHeight": 78,
+    "bytes": 2066
+  },
+  {
+    "file": "mg_item_soft_cushion.webp",
+    "source": "mg_batch_b/mg_item_soft_cushion.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "731,548,914,731",
+    "sourceWidth": 131,
+    "sourceHeight": 103,
+    "bytes": 2778
+  },
+  {
+    "file": "mg_item_strategy_notebook.webp",
+    "source": "mg_batch_b/mg_item_strategy_notebook.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "1097,0,1280,183",
+    "sourceWidth": 96,
+    "sourceHeight": 111,
+    "bytes": 2306
+  },
+  {
+    "file": "mg_item_token_medallion.webp",
+    "source": "mg_batch_b/mg_item_token_medallion.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "1097,548,1280,731",
+    "sourceWidth": 109,
+    "sourceHeight": 111,
+    "bytes": 4006
+  },
+  {
+    "file": "mg_item_trading_ticket.webp",
+    "source": "mg_batch_b/mg_item_trading_ticket.png",
+    "referenceImage": "mg_batch_b_catalog.jpg",
+    "referenceCrop": "731,183,914,366",
+    "sourceWidth": 118,
+    "sourceHeight": 100,
+    "bytes": 1844
+  },
+  {
+    "file": "mg_prop_bookshelf.webp",
+    "source": "mg_batch_a/mg_prop_bookshelf.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "512,256,768,512",
+    "sourceWidth": 134,
+    "sourceHeight": 201,
+    "bytes": 6210
+  },
+  {
+    "file": "mg_prop_coffee_counter.webp",
+    "source": "mg_batch_a/mg_prop_coffee_counter.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "768,256,1024,512",
+    "sourceWidth": 159,
+    "sourceHeight": 163,
+    "bytes": 4028
+  },
+  {
+    "file": "mg_prop_debate_table.webp",
+    "source": "010_wooden-stool.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "256,256,512,512",
+    "sourceWidth": 907,
+    "sourceHeight": 620,
+    "bytes": 54362
+  },
+  {
+    "file": "mg_prop_execution_terminal.webp",
+    "source": "mg_batch_a/mg_prop_execution_terminal.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "0,256,256,512",
+    "sourceWidth": 156,
+    "sourceHeight": 184,
+    "bytes": 4916
+  },
+  {
+    "file": "mg_prop_floor_lamp.webp",
+    "source": "013_lampshade_floor-lamp.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "0,512,256,768",
+    "sourceWidth": 383,
+    "sourceHeight": 1117,
+    "bytes": 27232
+  },
+  {
+    "file": "mg_prop_lead_desk.webp",
+    "source": "003_jar-carving_wooden-cabinet-1.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "0,0,256,256",
+    "sourceWidth": 1067,
+    "sourceHeight": 609,
+    "bytes": 48152
+  },
+  {
+    "file": "mg_prop_market_workstation.webp",
+    "source": "mg_batch_a/mg_prop_market_workstation.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "256,0,512,256",
+    "sourceWidth": 158,
+    "sourceHeight": 162,
+    "bytes": 4294
+  },
+  {
+    "file": "mg_prop_office_rug.webp",
+    "source": "016_oval-plate.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "1024,512,1280,768",
+    "sourceWidth": 1050,
+    "sourceHeight": 773,
+    "bytes": 44926
+  },
+  {
+    "file": "mg_prop_plant_desktop.webp",
+    "source": "mg_batch_a/mg_prop_plant_desktop.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "768,768,1024,1024",
+    "sourceWidth": 107,
+    "sourceHeight": 147,
+    "bytes": 3598
+  },
+  {
+    "file": "mg_prop_plant_floor.webp",
+    "source": "mg_batch_a/mg_prop_plant_floor.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "0,768,256,1024",
+    "sourceWidth": 152,
+    "sourceHeight": 197,
+    "bytes": 5006
+  },
+  {
+    "file": "mg_prop_plant_hanging.webp",
+    "source": "mg_batch_a/mg_prop_plant_hanging.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "512,768,768,1024",
+    "sourceWidth": 124,
+    "sourceHeight": 212,
+    "bytes": 4526
+  },
+  {
+    "file": "mg_prop_plant_succulent.webp",
+    "source": "mg_batch_a/mg_prop_plant_succulent.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "256,768,512,1024",
+    "sourceWidth": 101,
+    "sourceHeight": 152,
+    "bytes": 4110
+  },
+  {
+    "file": "mg_prop_research_desk.webp",
+    "source": "mg_batch_a/mg_prop_research_desk.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "512,0,768,256",
+    "sourceWidth": 186,
+    "sourceHeight": 154,
+    "bytes": 4282
+  },
+  {
+    "file": "mg_prop_risk_desk.webp",
+    "source": "mg_batch_a/mg_prop_risk_desk.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "1024,0,1280,256",
+    "sourceWidth": 174,
+    "sourceHeight": 145,
+    "bytes": 3550
+  },
+  {
+    "file": "mg_prop_strategy_workbench.webp",
+    "source": "mg_batch_a/mg_prop_strategy_workbench.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "768,0,1024,256",
+    "sourceWidth": 189,
+    "sourceHeight": 167,
+    "bytes": 4870
+  },
+  {
+    "file": "mg_prop_wall_clock.webp",
+    "source": "mg_batch_a/mg_prop_wall_clock.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "768,512,1024,768",
+    "sourceWidth": 145,
+    "sourceHeight": 143,
+    "bytes": 3046
+  },
+  {
+    "file": "mg_prop_whiteboard.webp",
+    "source": "mg_batch_a/mg_prop_whiteboard.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "1024,256,1280,512",
+    "sourceWidth": 179,
+    "sourceHeight": 167,
+    "bytes": 1306
+  },
+  {
+    "file": "mg_prop_window_frame.webp",
+    "source": "mg_batch_a/mg_prop_window_frame.png",
+    "referenceImage": "mg_batch_a_catalog.jpg",
+    "referenceCrop": "512,512,768,768",
+    "sourceWidth": 171,
+    "sourceHeight": 176,
+    "bytes": 2400
+  },
+  {
+    "file": "mg_desk_diagonal_v3.webp",
+    "source": "imagegen/exec-4d7d78be-3f3b-44cc-b860-78d8044baed1.png",
+    "referenceImage": "Owner supplied 1-Photo-1.jpg",
+    "sourceWidth": 1672,
+    "sourceHeight": 941,
+    "width": 960,
+    "height": 540,
+    "bytes": 77782,
+    "usage": "Separate transparent desk. Painted diagonal perspective, vertical legs. Eastern furniture mirrors this sprite; labels remain readable."
+  },
+  {
+    "file": "mg_chair_diagonal_v3.webp",
+    "source": "imagegen/exec-aa3d2455-6976-4b15-bf24-c6655cd57781.png",
+    "referenceImage": "Owner supplied 1-Photo-1.jpg",
+    "width": 360,
+    "height": 329,
+    "bytes": 26418,
+    "usage": "Separate transparent chair, behind seated avatar and desk.",
+    "sourceWidth": 1312,
+    "sourceHeight": 1199
+  }
+]

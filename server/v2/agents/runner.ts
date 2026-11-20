@@ -1,0 +1,808 @@
+import { z } from 'zod';
+import { safe } from '../../redact.js';
+import { fenceData } from '../../untrusted.js';
+import type { ConfidenceReading, ConfidenceScale, RoleId } from '../contracts.js';
+import type { ResearchHost } from '../research/host.js';
+import {
+  createOfficialProviderCaller,
+  type ProviderAssignment,
+  type ProviderCaller,
+  type RolePhase
+} from './providers.js';
+import { buildRoleSystemPrompt } from './roles.js';
+
+export type RoleRoute = 'LOCAL' | 'GROK' | 'MIRROR_READ_ONLY';
+export type RoleStance = 'LONG' | 'SHORT' | 'HOLD' | 'CLOSE' | 'NEUTRAL';
+
+export interface ThesisInvalidationPredicate {
+  kind: 'PRICE_BELOW' | 'PRICE_ABOVE' | 'STRUCTURE_BREAK';
+  level?: string;
+  timeframe?: string;
+  description: string;
+}
+
+export interface RoleTask {
+  cycleId: string;
+  role: RoleId;
+  phase: RolePhase;
+  taskAttempt: number;
+  evidenceId: string;
+  configVersion: number;
+  accountRef: string;
+  route: RoleRoute;
+  deadlineAt: number;
+  symbol?: string;
+  promptContext?: Record<string, unknown>;
+}
+
+export interface BaseRoleResult {
+  cycleId: string;
+  role: RoleId;
+  phase: RolePhase;
+  taskAttempt: number;
+  evidenceId: string;
+  configVersion: number;
+  accountRef: string;
+  route: RoleRoute;
+  deadlineAt: number;
+  status: 'completed' | 'unavailable' | 'cancelled';
+  stance: RoleStance | null;
+  claimRefs: string[];
+  contraryRefs: string[];
+  reasoning: string | null;
+  confidence: ConfidenceReading;
+  provider: string | null;
+  model: string | null;
+  toolTraceIds: string[];
+  invalidationPredicate?: ThesisInvalidationPredicate | null;
+  proposedStop?: string | null;
+  proposedTp?: string | null;
+  proposedOrderType?: 'MARKET' | 'LIMIT_GTC' | null;
+  proposedLimitPrice?: string | null;
+  errorReason?: string | null;
+}
+
+export interface RiskRoleResult extends BaseRoleResult {
+  role: 'risk';
+  decision: 'APPROVE' | 'REJECT' | null;
+}
+
+export type NonRiskRoleResult = BaseRoleResult & {
+  role: Exclude<RoleId, 'risk'>;
+  decision?: undefined;
+};
+
+export type RoleResult = RiskRoleResult | NonRiskRoleResult;
+
+export function satisfiesLeadProbabilityThreshold(
+  role: RoleId,
+  confidence: ConfidenceReading,
+  minEntryConfidencePct: number
+): boolean {
+  if (role !== 'lead') return false;
+  if (confidence.scale !== 'probability_0_1') return false;
+  if (confidence.value === null || !Number.isFinite(confidence.value)) return false;
+  if (confidence.value < 0 || confidence.value > 1) return false;
+  return confidence.value * 100 >= minEntryConfidencePct;
+}
+
+const ToolCallEnvelopeSchema = z
+  .object({
+    toolCalls: z
+      .array(
+        z.object({
+          name: z.string().min(1),
+          args: z.record(z.string(), z.unknown()).default({})
+        })
+      )
+      .min(1)
+  })
+  .passthrough();
+
+const ModelConfidenceSchema = z.preprocess((val) => {
+  if (typeof val === 'number') {
+    const num = val <= 1 ? val : val / 100;
+    return { value: num, scale: 'probability_0_1' };
+  }
+  if (typeof val === 'string') {
+    const parsed = Number(val);
+    if (Number.isFinite(parsed)) {
+      const num = parsed <= 1 ? parsed : parsed / 100;
+      return { value: num, scale: 'probability_0_1' };
+    }
+  }
+  if (val && typeof val === 'object') {
+    const obj = val as Record<string, unknown>;
+    const rawVal = obj.value;
+    const numVal = typeof rawVal === 'string' ? Number(rawVal) : (typeof rawVal === 'number' ? rawVal : null);
+    return {
+      ...obj,
+      value: Number.isFinite(numVal) ? numVal : null,
+      scale: typeof obj.scale === 'string' ? obj.scale : 'probability_0_1'
+    };
+  }
+  return val;
+}, z.object({
+  value: z.number().nullable(),
+  scale: z.enum(['probability_0_1', 'ordinal_1_5', 'score_0_100']).nullable()
+}));
+
+const PredicateSchema = z.object({
+  kind: z.enum(['PRICE_BELOW', 'PRICE_ABOVE', 'STRUCTURE_BREAK']),
+  level: z.union([z.string(), z.number()]).transform((v) => String(v)).optional(),
+  timeframe: z.string().optional(),
+  description: z.string().min(1)
+});
+
+const PreprocessedStance = z.preprocess((val) => {
+  if (typeof val === 'string') {
+    const upper = val.trim().toUpperCase();
+    if (upper === 'BULLISH' || upper === 'BUY') return 'LONG';
+    if (upper === 'BEARISH' || upper === 'SELL') return 'SHORT';
+    if (upper === 'WAIT' || upper === 'FLAT' || upper === 'NONE') return 'HOLD';
+    return upper;
+  }
+  return val;
+}, z.enum(['LONG', 'SHORT', 'HOLD', 'CLOSE', 'NEUTRAL']));
+
+const LooseStringArray = z.preprocess(
+  (v) => (Array.isArray(v) ? v.map(String) : []),
+  z.array(z.string())
+).default([]);
+
+const OptionalPriceString = z.union([z.string(), z.number()]).transform((v) => String(v)).nullable().optional();
+
+const BaseReplySchema = z.object({
+  stance: PreprocessedStance,
+  decision: z.enum(['APPROVE', 'REJECT']).optional(),
+  claimRefs: LooseStringArray,
+  contraryRefs: LooseStringArray,
+  reasoning: z.string().min(1),
+  confidence: ModelConfidenceSchema.optional(),
+  invalidationPredicate: PredicateSchema.nullable().optional(),
+  proposedStop: OptionalPriceString,
+  proposedTp: OptionalPriceString,
+  proposedOrderType: z.enum(['MARKET', 'LIMIT_GTC']).nullable().optional(),
+  proposedLimitPrice: OptionalPriceString
+});
+
+function validateScaleBounds(scale: ConfidenceScale | null, value: number | null): boolean {
+  if (value === null || scale === null) return true;
+  if (!Number.isFinite(value)) return false;
+  if (scale === 'probability_0_1') return value >= 0 && value <= 1;
+  if (scale === 'ordinal_1_5') return value >= 1 && value <= 5;
+  if (scale === 'score_0_100') return value >= 0 && value <= 100;
+  return false;
+}
+
+function tryParseJson(raw: string): unknown {
+  const stripped = raw
+    .replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '')
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
+    .trim();
+  try {
+    return JSON.parse(stripped);
+  } catch {
+    const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(stripped);
+    if (fenced?.[1]) {
+      try {
+        return JSON.parse(fenced[1].trim());
+      } catch {
+        // continue
+      }
+    }
+    const start = stripped.indexOf('{');
+    const end = stripped.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(stripped.slice(start, end + 1));
+      } catch {
+        // continue
+      }
+    }
+    throw new Error('Malformed JSON reply');
+  }
+}
+
+export function getRoleSchemaInstruction(role: RoleId): string {
+  const toolHint = `You may optionally call tools before your final answer by returning: {"toolCalls": [{"name": "<tool_name>", "args": {...}}]}`;
+  if (role === 'risk') {
+    return `${toolHint}
+
+Respond strictly with a valid JSON object matching this schema:
+{
+  "decision": "APPROVE" | "REJECT",
+  "stance": "LONG" | "SHORT" | "HOLD" | "CLOSE" | "NEUTRAL",
+  "reasoning": "Clear explanation of risk verdict in character (max 3 sentences)",
+  "confidence": { "value": 0.0 to 1.0, "scale": "probability_0_1" },
+  "claimRefs": [],
+  "contraryRefs": []
+}`;
+  }
+
+  if (role === 'lead') {
+    return `${toolHint}
+
+Respond strictly with a valid JSON object matching this schema:
+{
+  "stance": "LONG" | "SHORT" | "HOLD" | "CLOSE",
+  "reasoning": "Executive decision synthesis in character (max 3 sentences)",
+  "confidence": { "value": 0.0 to 1.0, "scale": "probability_0_1" },
+  "claimRefs": [],
+  "contraryRefs": [],
+  "proposedStop": "optional SL price string",
+  "proposedTp": "optional TP price string",
+  "proposedOrderType": "MARKET" | "LIMIT_GTC",
+  "proposedLimitPrice": "optional limit price when LIMIT_GTC"
+}`;
+  }
+
+  return `${toolHint}
+
+Respond strictly with a valid JSON object matching this schema:
+{
+  "stance": "LONG" | "SHORT" | "HOLD" | "CLOSE" | "NEUTRAL",
+  "reasoning": "Analysis in character (max 3 sentences)",
+  "confidence": { "value": 0.0 to 1.0, "scale": "probability_0_1" },
+  "claimRefs": [],
+  "contraryRefs": []
+}`;
+}
+
+export interface RoleRunnerOptions {
+  researchHost?: ResearchHost;
+  providerCaller?: ProviderCaller;
+  resolveAssignment: (role: RoleId, configVersion: number) => ProviderAssignment;
+}
+
+export class RoleRunner {
+  private readonly researchHost?: ResearchHost;
+  private readonly providerCaller: ProviderCaller;
+  private readonly resolveAssignment: (role: RoleId, configVersion: number) => ProviderAssignment;
+  private readonly activeAttempts = new Map<string, { attempt: number; abort: AbortController }>();
+  private readonly acceptedResults = new Map<string, RoleResult>();
+  private readonly cycleOrder: string[] = [];
+  private readonly maxRetainedCycles = 20;
+
+  constructor(options: RoleRunnerOptions) {
+    this.researchHost = options.researchHost;
+    this.providerCaller = options.providerCaller ?? createOfficialProviderCaller();
+    this.resolveAssignment = options.resolveAssignment;
+  }
+
+  /** Direct owner chat uses the same typed provider route as strategy roles, without a trade side effect. */
+  async chat(input: { role: RoleId; prompt: string; configVersion: number; cycleId: string; deskContext?: string }): Promise<string> {
+    const assignment = this.resolveAssignment(input.role, input.configVersion);
+    let user = input.deskContext ? `${input.deskContext}\n\n${input.prompt}` : input.prompt;
+    const system = buildRoleSystemPrompt(input.role);
+    let rawText = '';
+
+    for (let turn = 0; turn < 2; turn += 1) {
+      rawText = await this.providerCaller({
+        cycleId: input.cycleId,
+        role: input.role,
+        phase: 'final',
+        taskAttempt: 1,
+        turn,
+        provider: assignment.provider.trim().toLowerCase(),
+        model: assignment.model.trim(),
+        apiKey: assignment.apiKey ?? '',
+        baseUrl: assignment.baseUrl,
+        apiProtocol: assignment.apiProtocol,
+        system,
+        user,
+        timeoutMs: 120_000,
+        reasoningEffort: assignment.reasoningEffort,
+        provenOsSandbox: assignment.provenOsSandbox
+      });
+
+      if (!this.researchHost) {
+        break;
+      }
+
+      let maybeToolObj: unknown = null;
+      try {
+        maybeToolObj = tryParseJson(rawText);
+      } catch {
+        break;
+      }
+
+      const toolParsed = ToolCallEnvelopeSchema.safeParse(maybeToolObj);
+      if (!toolParsed.success || toolParsed.data.toolCalls.length === 0) {
+        break;
+      }
+
+      const toolOutputs: unknown[] = [];
+      for (const call of toolParsed.data.toolCalls) {
+        const res = await this.researchHost.run(call, {
+          role: input.role,
+          cycleId: input.cycleId,
+          accountRef: 'chat:owner',
+          evidenceId: `chat-${input.cycleId}`
+        });
+        toolOutputs.push({
+          tool: call.name,
+          traceId: res.traceId,
+          status: res.status,
+          sourceRefs: res.sourceRefs,
+          data: res.data,
+          error: res.error
+        });
+      }
+
+      user = `${user}\n\n${fenceData('host_tool_results', toolOutputs)}`;
+    }
+
+    return rawText;
+  }
+
+  private slotKey(cycleId: string, role: RoleId, phase: RolePhase): string {
+    return `${cycleId}:${role}:${phase}`;
+  }
+
+  getAcceptedResult(cycleId: string, role: RoleId, phase: RolePhase): RoleResult | undefined {
+    return this.acceptedResults.get(this.slotKey(cycleId, role, phase));
+  }
+
+  cleanupCycle(cycleId: string): void {
+    const prefix = `${cycleId}:`;
+    for (const [key, attempt] of this.activeAttempts.entries()) {
+      if (key.startsWith(prefix)) {
+        try { attempt.abort.abort(); } catch {}
+        this.activeAttempts.delete(key);
+      }
+    }
+    for (const key of Array.from(this.acceptedResults.keys())) {
+      if (key.startsWith(prefix)) {
+        this.acceptedResults.delete(key);
+      }
+    }
+    const idx = this.cycleOrder.indexOf(cycleId);
+    if (idx !== -1) {
+      this.cycleOrder.splice(idx, 1);
+    }
+  }
+
+  private registerCycle(cycleId: string): void {
+    const idx = this.cycleOrder.indexOf(cycleId);
+    if (idx !== -1) {
+      this.cycleOrder.splice(idx, 1);
+    }
+    this.cycleOrder.push(cycleId);
+    while (this.cycleOrder.length > this.maxRetainedCycles) {
+      const oldest = this.cycleOrder.shift();
+      if (oldest) {
+        this.cleanupCycle(oldest);
+      }
+    }
+  }
+
+  getMetrics(): { activeAttemptsCount: number; acceptedResultsCount: number; retainedCyclesCount: number } {
+    return {
+      activeAttemptsCount: this.activeAttempts.size,
+      acceptedResultsCount: this.acceptedResults.size,
+      retainedCyclesCount: this.cycleOrder.length
+    };
+  }
+
+  private makeEmptyResult(
+    task: RoleTask,
+    status: 'unavailable' | 'cancelled',
+    provider: string | null,
+    model: string | null,
+    toolTraceIds: string[],
+    reason: string
+  ): RoleResult {
+    const confidence: ConfidenceReading = {
+      value: null,
+      scale: null,
+      source: `${provider ?? 'none'}:${task.role}`,
+      availability: 'UNAVAILABLE',
+      reason
+    };
+
+    const base: BaseRoleResult = {
+      cycleId: task.cycleId,
+      role: task.role,
+      phase: task.phase,
+      taskAttempt: task.taskAttempt,
+      evidenceId: task.evidenceId,
+      configVersion: task.configVersion,
+      accountRef: task.accountRef,
+      route: task.route,
+      deadlineAt: task.deadlineAt,
+      status,
+      stance: null,
+      claimRefs: [],
+      contraryRefs: [],
+      reasoning: null,
+      confidence,
+      provider,
+      model,
+      toolTraceIds,
+      errorReason: safe(reason)
+    };
+
+    if (task.role === 'risk') {
+      return { ...base, role: 'risk', decision: null };
+    }
+    return { ...base, role: task.role };
+  }
+
+  async run(task: RoleTask, signal?: AbortSignal): Promise<RoleResult> {
+    this.registerCycle(task.cycleId);
+    const key = this.slotKey(task.cycleId, task.role, task.phase);
+    const existing = this.activeAttempts.get(key);
+    if (existing && existing.attempt > task.taskAttempt) {
+      return this.makeEmptyResult(
+        task,
+        'cancelled',
+        null,
+        null,
+        [],
+        `Stale taskAttempt ${task.taskAttempt} superseded by ${existing.attempt}`
+      );
+    }
+    if (existing && existing.attempt < task.taskAttempt) {
+      existing.abort.abort();
+    }
+
+    const attemptAbort = new AbortController();
+    this.activeAttempts.set(key, { attempt: task.taskAttempt, abort: attemptAbort });
+    const combinedSignal = signal
+      ? AbortSignal.any([signal, attemptAbort.signal])
+      : attemptAbort.signal;
+
+    const assignment = this.resolveAssignment(task.role, task.configVersion);
+    const provider = assignment.provider.trim().toLowerCase();
+    const model = assignment.model.trim();
+    const toolTraceIds: string[] = [];
+
+    try {
+      if (combinedSignal.aborted) {
+        return this.makeEmptyResult(task, 'cancelled', provider, model, toolTraceIds, 'Task cancelled before start');
+      }
+
+    if (provider !== 'local' && provider !== 'mock' && (!assignment.apiKey || !assignment.apiKey.trim())) {
+      return this.makeEmptyResult(
+        task,
+        'unavailable',
+        provider,
+        model,
+        toolTraceIds,
+        `Missing API key for provider ${provider}`
+      );
+    }
+
+    const remainingBudgetMs = Math.max(120_000, Math.min(300_000, task.deadlineAt - Date.now()));
+    const system = buildRoleSystemPrompt(task.role);
+    const schemaHint = getRoleSchemaInstruction(task.role);
+    let userPrompt = `${schemaHint}\n\nTask and Market Context:\n${JSON.stringify({
+      cycleId: task.cycleId,
+      role: task.role,
+      phase: task.phase,
+      evidenceId: task.evidenceId,
+      symbol: task.symbol ?? null,
+      context: task.promptContext ?? {}
+    }, null, 2)}`;
+
+    let rawText = '';
+      for (let turn = 0; turn < 4; turn += 1) {
+        if (combinedSignal.aborted || this.activeAttempts.get(key)?.attempt !== task.taskAttempt) {
+          return this.makeEmptyResult(task, 'cancelled', provider, model, toolTraceIds, 'Task cancelled or superseded');
+        }
+
+        let callError: unknown = null;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            rawText = await this.providerCaller({
+              cycleId: task.cycleId,
+              role: task.role,
+              phase: task.phase,
+              taskAttempt: task.taskAttempt,
+              turn,
+              provider,
+              model,
+              apiKey: assignment.apiKey ?? '',
+              baseUrl: assignment.baseUrl,
+              apiProtocol: assignment.apiProtocol,
+              system,
+              user: userPrompt,
+              retryReason: attempt > 1 ? 'output_limit' : undefined,
+              signal: combinedSignal,
+              timeoutMs: remainingBudgetMs,
+              reasoningEffort: assignment.reasoningEffort,
+              provenOsSandbox: assignment.provenOsSandbox
+            });
+            callError = null;
+            break;
+          } catch (e) {
+            callError = e;
+            const msg = e instanceof Error ? e.message : String(e);
+            const isTransient = /empty output|token limit|timeout|fetch failed|rate limit|econnreset|503|502|429/i.test(msg);
+            if (attempt === 1 && isTransient && !combinedSignal.aborted) {
+              await new Promise((r) => setTimeout(r, 1000));
+              continue;
+            }
+            throw e;
+          }
+        }
+        if (callError) throw callError;
+
+        if (combinedSignal.aborted || this.activeAttempts.get(key)?.attempt !== task.taskAttempt) {
+          return this.makeEmptyResult(task, 'cancelled', provider, model, toolTraceIds, 'Late result discarded after cancellation');
+        }
+
+        let maybeToolObj: unknown = null;
+        try {
+          maybeToolObj = tryParseJson(rawText);
+        } catch {
+          break;
+        }
+
+        const toolParsed = ToolCallEnvelopeSchema.safeParse(maybeToolObj);
+        if (!toolParsed.success) {
+          break;
+        }
+
+        if (!this.researchHost) {
+          return this.makeEmptyResult(
+            task,
+            'unavailable',
+            provider,
+            model,
+            toolTraceIds,
+            'Role requested host tools while ResearchHost is unavailable'
+          );
+        }
+
+        const toolOutputs: unknown[] = [];
+        for (const call of toolParsed.data.toolCalls) {
+          const res = await this.researchHost.run(call, {
+            role: task.role,
+            cycleId: task.cycleId,
+            accountRef: task.accountRef,
+            evidenceId: task.evidenceId
+          });
+          toolTraceIds.push(res.traceId);
+          toolOutputs.push({
+            tool: call.name,
+            traceId: res.traceId,
+            status: res.status,
+            sourceRefs: res.sourceRefs,
+            data: res.data,
+            error: res.error
+          });
+        }
+
+        userPrompt = `${userPrompt}\n\n${fenceData('host_tool_results', toolOutputs)}`;
+      }
+
+      let parsedJson: unknown;
+      try {
+        parsedJson = tryParseJson(rawText);
+      } catch {
+        const repairedRaw = await this.providerCaller({
+          cycleId: task.cycleId,
+          role: task.role,
+          phase: task.phase,
+          taskAttempt: task.taskAttempt,
+          turn: 99,
+          provider,
+          model,
+          apiKey: assignment.apiKey ?? '',
+          baseUrl: assignment.baseUrl,
+          apiProtocol: assignment.apiProtocol,
+          system,
+          user: `Reformat the following draft strictly as valid JSON matching the schema without adding or changing any factual claims or references:\n\n${schemaHint}\n\nDraft to reformat:\n${rawText}`,
+          retryReason: 'format_repair',
+          signal: combinedSignal,
+          timeoutMs: remainingBudgetMs,
+          reasoningEffort: assignment.reasoningEffort,
+          provenOsSandbox: assignment.provenOsSandbox
+        });
+        parsedJson = tryParseJson(repairedRaw);
+      }
+
+      if (combinedSignal.aborted || this.activeAttempts.get(key)?.attempt !== task.taskAttempt) {
+        return this.makeEmptyResult(task, 'cancelled', provider, model, toolTraceIds, 'Late result discarded after cancellation');
+      }
+
+      if (parsedJson && typeof parsedJson === 'object' && !Array.isArray(parsedJson)) {
+        const obj = parsedJson as Record<string, unknown>;
+
+        if (typeof obj.stance === 'string') {
+          const upper = obj.stance.toUpperCase().trim();
+          if (['LONG', 'SHORT', 'HOLD', 'CLOSE', 'NEUTRAL'].includes(upper)) {
+            obj.stance = upper;
+          } else if (upper.includes('BUY') || upper.includes('BULL')) {
+            obj.stance = 'LONG';
+          } else if (upper.includes('SELL') || upper.includes('BEAR')) {
+            obj.stance = 'SHORT';
+          } else if (upper.includes('CLOSE')) {
+            obj.stance = 'CLOSE';
+          } else {
+            obj.stance = 'HOLD';
+          }
+        } else if (typeof obj.action === 'string') {
+          const act = obj.action.toUpperCase();
+          if (act.includes('LONG')) obj.stance = 'LONG';
+          else if (act.includes('SHORT')) obj.stance = 'SHORT';
+          else if (act.includes('CLOSE')) obj.stance = 'CLOSE';
+          else obj.stance = 'HOLD';
+        } else if (!obj.stance) {
+          obj.stance = 'HOLD';
+        }
+
+        if (!obj.reasoning && typeof obj.rationale === 'string') {
+          obj.reasoning = obj.rationale;
+        } else if (!obj.reasoning && typeof obj.analysis === 'string') {
+          obj.reasoning = obj.analysis;
+        } else if (!obj.reasoning && typeof obj.argument === 'string') {
+          obj.reasoning = obj.argument;
+        } else if (!obj.reasoning && typeof obj.summary === 'string') {
+          obj.reasoning = obj.summary;
+        } else if (!obj.reasoning && typeof obj.text === 'string') {
+          obj.reasoning = obj.text;
+        } else if (!obj.reasoning) {
+          obj.reasoning = 'Deliberation completed.';
+        }
+
+        if (typeof obj.confidence === 'number' || typeof obj.confidence === 'string') {
+          const num = typeof obj.confidence === 'number' ? obj.confidence : Number(obj.confidence);
+          if (Number.isFinite(num)) {
+            if (num >= 0 && num <= 1) {
+              obj.confidence = { value: num, scale: 'probability_0_1' };
+            } else if (num > 1 && num <= 5) {
+              obj.confidence = { value: num, scale: 'ordinal_1_5' };
+            } else if (num > 5 && num <= 100) {
+              obj.confidence = { value: num, scale: 'score_0_100' };
+            } else {
+              obj.confidence = { value: null, scale: null };
+            }
+          }
+        }
+
+        if (task.role === 'risk' && !obj.decision) {
+          if (typeof obj.decision === 'string' && /reject|veto/i.test(obj.decision)) {
+            obj.decision = 'REJECT';
+          } else if (typeof obj.decision === 'string' && /approve/i.test(obj.decision)) {
+            obj.decision = 'APPROVE';
+          } else if (obj.stance === 'LONG' || obj.stance === 'SHORT') {
+            obj.decision = 'APPROVE';
+          } else if (typeof obj.reasoning === 'string' && /reject|veto|risk too high/i.test(obj.reasoning)) {
+            obj.decision = 'REJECT';
+          } else if (typeof obj.reasoning === 'string' && /approve|acceptable risk/i.test(obj.reasoning)) {
+            obj.decision = 'APPROVE';
+          } else {
+            obj.decision = 'REJECT';
+          }
+        }
+
+        if (obj.thesis && typeof obj.thesis === 'object') {
+          const t = obj.thesis as Record<string, unknown>;
+          if (t.stop != null && !obj.proposedStop) obj.proposedStop = String(t.stop);
+          if (t.tp != null && !obj.proposedTp) obj.proposedTp = String(t.tp);
+          if (t.limitPrice != null && !obj.proposedLimitPrice) obj.proposedLimitPrice = String(t.limitPrice);
+          if (t.orderType != null && !obj.proposedOrderType) obj.proposedOrderType = t.orderType;
+        }
+        if (typeof obj.stop === 'number' || typeof obj.stop === 'string') {
+          if (!obj.proposedStop) obj.proposedStop = String(obj.stop);
+        }
+        if (typeof obj.tp === 'number' || typeof obj.tp === 'string') {
+          if (!obj.proposedTp) obj.proposedTp = String(obj.tp);
+        }
+
+        if (typeof obj.proposedStop === 'number') obj.proposedStop = String(obj.proposedStop);
+        if (typeof obj.proposedTp === 'number') obj.proposedTp = String(obj.proposedTp);
+        if (typeof obj.proposedLimitPrice === 'number') obj.proposedLimitPrice = String(obj.proposedLimitPrice);
+        if (obj.invalidationPredicate && typeof obj.invalidationPredicate === 'object') {
+          if (typeof (obj.invalidationPredicate as Record<string, unknown>).level === 'number') {
+            (obj.invalidationPredicate as Record<string, unknown>).level = String((obj.invalidationPredicate as Record<string, unknown>).level);
+          }
+        }
+      }
+
+      const validated = BaseReplySchema.safeParse(parsedJson);
+      if (!validated.success) {
+        return this.makeEmptyResult(
+          task,
+          'unavailable',
+          provider,
+          model,
+          toolTraceIds,
+          'Model output failed role schema validation'
+        );
+      }
+
+      if (task.role === 'risk' && !validated.data.decision) {
+        return this.makeEmptyResult(
+          task,
+          'unavailable',
+          provider,
+          model,
+          toolTraceIds,
+          'Risk role output missing explicit APPROVE or REJECT decision'
+        );
+      }
+
+      const rawConf = validated.data.confidence;
+      const confScale = rawConf?.scale ?? null;
+      const confValue = rawConf?.value ?? null;
+      if (!validateScaleBounds(confScale, confValue)) {
+        return this.makeEmptyResult(
+          task,
+          'unavailable',
+          provider,
+          model,
+          toolTraceIds,
+          'Model output contained out-of-range confidence value for its declared scale'
+        );
+      }
+
+      const confidence: ConfidenceReading = {
+        value: confValue,
+        scale: confScale,
+        source: `${provider}:${task.role}`,
+        availability: confValue !== null && confScale !== null ? 'AVAILABLE' : 'UNAVAILABLE',
+        reason: confValue !== null && confScale !== null ? null : 'Confidence omitted'
+      };
+
+      const baseCompleted: BaseRoleResult = {
+        cycleId: task.cycleId,
+        role: task.role,
+        phase: task.phase,
+        taskAttempt: task.taskAttempt,
+        evidenceId: task.evidenceId,
+        configVersion: task.configVersion,
+        accountRef: task.accountRef,
+        route: task.route,
+        deadlineAt: task.deadlineAt,
+        status: 'completed',
+        stance: validated.data.stance,
+        claimRefs: validated.data.claimRefs,
+        contraryRefs: validated.data.contraryRefs,
+        reasoning: validated.data.reasoning,
+        confidence,
+        provider,
+        model,
+        toolTraceIds,
+        invalidationPredicate: validated.data.invalidationPredicate ?? null,
+        proposedStop: validated.data.proposedStop ?? null,
+        proposedTp: validated.data.proposedTp ?? null,
+        proposedOrderType: validated.data.proposedOrderType ?? null,
+        proposedLimitPrice: validated.data.proposedLimitPrice ?? null,
+        errorReason: null
+      };
+
+      const finalResult: RoleResult =
+        task.role === 'risk'
+          ? { ...baseCompleted, role: 'risk', decision: validated.data.decision! }
+          : { ...baseCompleted, role: task.role };
+
+      this.acceptedResults.set(key, finalResult);
+      return finalResult;
+    } catch (err) {
+      if (
+        combinedSignal.aborted ||
+        this.activeAttempts.get(key)?.attempt !== task.taskAttempt ||
+        (err instanceof Error && /cancelled/i.test(err.message))
+      ) {
+        return this.makeEmptyResult(task, 'cancelled', provider, model, toolTraceIds, 'Task cancelled');
+      }
+      return this.makeEmptyResult(
+        task,
+        'unavailable',
+        provider,
+        model,
+        toolTraceIds,
+        err instanceof Error ? err.message : 'Role task execution failed'
+      );
+    } finally {
+      const current = this.activeAttempts.get(key);
+      if (current && current.attempt === task.taskAttempt) {
+        this.activeAttempts.delete(key);
+      }
+    }
+  }
+}

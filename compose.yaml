@@ -1,0 +1,127 @@
+name: trading-agent-mpu-gandring
+
+x-app-environment: &app-environment
+  PGHOST: database
+  PGPORT: "5432"
+  PGUSER: mpu_runtime
+  PGDATABASE: mpu
+  DATABASE_PASSWORD_FILE: /run/secrets/postgres_app_password
+  DATABASE_SCHEMA: desk
+  INDODAX_STOP_SCHEMA: indodax_stops
+  INDODAX_MASTER_KEY_FILE: /run/secrets/indodax_master_key
+  CREDENTIAL_MASTER_KEY_FILE: /run/secrets/indodax_master_key
+  MPU_STATIC_WEB_DIR: /app/dist/web
+
+services:
+  init-secrets:
+    image: node:26-bookworm-slim
+    profiles: [tools]
+    volumes: [./.secrets:/secrets]
+    command:
+      - node
+      - -e
+      - "const f=require('node:fs'),c=require('node:crypto'); f.chmodSync('/secrets',0o700); for(const n of ['postgres_admin_password','postgres_app_password','indodax_master_key']) { const p='/secrets/'+n; if(!f.existsSync(p)) f.writeFileSync(p,c.randomBytes(32).toString('base64')+'\\n',{mode:0o644,flag:'wx'}); f.chmodSync(p,0o644); } console.log('Secret files ready in the private directory. Values are not displayed.');"
+
+  database:
+    image: postgres:18-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mpu_admin
+      POSTGRES_DB: mpu
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets: [postgres_admin_password, postgres_app_password]
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-mpu.sh:ro
+    networks: [database]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U mpu_admin -d mpu"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: {context: ., target: runtime}
+    restart: unless-stopped
+    init: true
+    depends_on:
+      database: {condition: service_healthy}
+    environment:
+      <<: *app-environment
+      HOST: 127.0.0.1
+      PORT: "8787"
+      TRADING_MODE: PAPER
+      AUTO_TRADING: "off"
+    secrets: [postgres_app_password, indodax_master_key]
+    volumes: [app_state:/state]
+    ports: ["127.0.0.1:8787:8080"]
+    networks: [database, egress]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8787/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  gateway:
+    image: nginx:stable-bookworm
+    restart: unless-stopped
+    network_mode: service:app
+    depends_on:
+      app: {condition: service_healthy}
+    volumes: [./docker/nginx.conf:/etc/nginx/nginx.conf:ro]
+
+  migrate:
+    build: {context: ., target: runtime}
+    profiles: [tools]
+    depends_on:
+      database: {condition: service_healthy}
+    environment: *app-environment
+    secrets: [postgres_app_password, indodax_master_key]
+    volumes: [./.mpu-gandring:/legacy:ro]
+    networks: [database]
+    command: [node, /app/dist/server/cli/migrate-postgres.js, --source, /legacy/rebirth/runtime.sqlite]
+
+  test-database:
+    image: postgres:18-bookworm
+    profiles: [test]
+    environment:
+      POSTGRES_USER: mpu_admin
+      POSTGRES_DB: mpu_test
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+    secrets: [postgres_admin_password]
+    tmpfs: [/var/lib/postgresql]
+    networks: [test]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U mpu_admin -d mpu_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  test:
+    build: {context: ., target: test}
+    profiles: [test]
+    depends_on:
+      test-database: {condition: service_healthy}
+    environment:
+      PGHOST: test-database
+      PGUSER: mpu_admin
+      PGDATABASE: mpu_test
+      DATABASE_PASSWORD_FILE: /run/secrets/postgres_admin_password
+      DATABASE_SCHEMA: test_runtime
+      TEST_POSTGRES: "1"
+    secrets: [postgres_admin_password]
+    networks: [test]
+    command: [npm, test]
+
+secrets:
+  postgres_admin_password: {file: ./.secrets/postgres_admin_password}
+  postgres_app_password: {file: ./.secrets/postgres_app_password}
+  indodax_master_key: {file: ./.secrets/indodax_master_key}
+volumes:
+  postgres_data:
+  app_state:
+networks:
+  database: {internal: true}
+  egress:
+  test:

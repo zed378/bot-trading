@@ -1,0 +1,52 @@
+import { z } from 'zod';
+import { readEnv, setEnv } from '../../cli/envfile.js';
+import { loadConfig } from '../config.js';
+import { DEFAULT_TRADING_SETTINGS, TRADING_ENV, TRADING_PRESETS, TradingSettingsSchema, manualTradingOverrides, resolveTradingPreset, resolveTradingSettings, tradingPrefix, tradingSettingsFromConfig } from '../trading-settings.js';
+
+export const TradingProfileBody = z.discriminatedUnion('profile', [
+  z.object({ network: z.enum(['testnet', 'mainnet']), profile: z.literal('default'), values: TradingSettingsSchema.optional() }).strict(),
+  z.object({ network: z.enum(['testnet', 'mainnet']), profile: z.literal('balance'), values: TradingSettingsSchema.optional() }).strict(),
+  z.object({ network: z.enum(['testnet', 'mainnet']), profile: z.literal('profit'), values: TradingSettingsSchema.optional() }).strict(),
+  z.object({ network: z.enum(['testnet', 'mainnet']), profile: z.literal('aggressive'), values: TradingSettingsSchema.optional() }).strict(),
+  z.object({ network: z.enum(['testnet', 'mainnet']), profile: z.literal('manual'), values: TradingSettingsSchema }).strict()
+]);
+export function tradingSetupInfo(env: NodeJS.ProcessEnv) {
+  const base = tradingSettingsFromConfig(loadConfig({ ...env, TRADING_MODE: 'PAPER' }));
+  return { defaults: DEFAULT_TRADING_SETTINGS, presets: TRADING_PRESETS, networks: Object.fromEntries((['testnet', 'mainnet'] as const).map((network) => [network, { ...resolveTradingSettings(env, base, network), manual: { ...base, ...manualTradingOverrides(env, network) } }])) };
+}
+export function saveTradingProfile(file: string, input: unknown) {
+  const data = TradingProfileBody.parse(input), prefix = tradingPrefix(data.network);
+  const updates: Record<string, string> = { [prefix + 'PROFILE']: data.profile };
+  if (data.profile === 'manual' && data.values.orderSizePct == null) updates[prefix + 'ORDER_SIZE_PCT'] = '';
+  if (data.profile === 'manual') for (const [key, value] of Object.entries(data.values)) if (value != null) updates[prefix + TRADING_ENV[key as keyof typeof TRADING_ENV]] = String(value);
+  const fileEnv = readEnv(file);
+  const cleanEnv: Record<string, string | undefined> = { ...process.env };
+  for (const k of Object.keys(cleanEnv)) {
+    if (k.startsWith('TESTNET_DESK_') || k.startsWith('MAINNET_DESK_')) delete cleanEnv[k];
+  }
+  const env = { ...cleanEnv, ...fileEnv, [prefix + 'PROFILE']: data.profile };
+  const base = tradingSettingsFromConfig(loadConfig({ ...env, TRADING_MODE: 'PAPER' }));
+  // Freeze the reviewed values separately so later preset edits cannot rewrite owner intent.
+  const values = data.profile === 'manual' ? data.values : data.values ?? resolveTradingPreset(data.profile, { ...base, ...manualTradingOverrides(env, data.network) });
+  if (data.profile !== 'manual') {
+    updates[prefix + 'SAVED_PROFILE'] = data.profile;
+    if (values.orderSizePct == null) updates[prefix + 'SAVED_ORDER_SIZE_PCT'] = '';
+    for (const [key, value] of Object.entries(values)) if (value != null) updates[prefix + 'SAVED_' + TRADING_ENV[key as keyof typeof TRADING_ENV]] = String(value);
+  }
+  setEnv(file, updates);
+  return { ...data, values };
+}
+
+export const TradingLimitsBody = z.object({ network: z.enum(['testnet', 'mainnet']), minOrderUsdt: z.number().finite().nonnegative(), maxOrderUsdt: z.number().finite().nonnegative() }).strict();
+export function saveTradingLimits(file: string, input: unknown) {
+  const limits = TradingLimitsBody.parse(input), env = readEnv(file);
+  const existing = tradingSetupInfo(env).networks[limits.network];
+  const prefix = tradingPrefix(limits.network);
+  const updates: Record<string, string> = { [prefix + 'MIN_ORDER_USDT']: String(limits.minOrderUsdt), [prefix + 'MAX_ORDER_USDT']: String(limits.maxOrderUsdt) };
+  if (env[prefix + 'SAVED_PROFILE']) {
+    updates[prefix + 'SAVED_MIN_ORDER_USDT'] = String(limits.minOrderUsdt);
+    updates[prefix + 'SAVED_MAX_ORDER_USDT'] = String(limits.maxOrderUsdt);
+  }
+  setEnv(file, updates);
+  return { network: limits.network, profile: existing.profile, values: { ...existing.values, minOrderUsdt: limits.minOrderUsdt, maxOrderUsdt: limits.maxOrderUsdt } };
+}

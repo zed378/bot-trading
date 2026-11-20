@@ -1,0 +1,160 @@
+import type { ModelRequest } from './index.js';
+import { hashStr } from '../market/sample.js';
+
+// Offline, deterministic stand-in for a model. No key, no network.
+// Output is driven by the structured context only, never by free text in the
+// prompt, so it doubles as a reference for how a well-behaved agent should act.
+// Everything it produces is flagged example=true by the caller.
+
+const NAMES: Record<string, string> = { lead: 'Desk Lead', market: 'Market Analyst', research: 'Research Analyst', strategist: 'Strategist', risk: 'Risk Manager', execution: 'Execution Trader' };
+const pick = <T,>(arr: T[], seed: string): T => arr[hashStr(seed) % arr.length];
+const clamp = (v: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, v));
+const r2 = (v: number) => Math.round(v * 100) / 100;
+type Ctx = Record<string, any>;
+
+function market(c: Ctx) {
+  const ch = Number(c.change24hPct ?? 0);
+  const fund = c.fundingRate == null ? null : Number(c.fundingRate);
+  const ch2 = Number(c.change2hPct ?? 0);
+  const temper = Number(c.temperament ?? 0);
+  const score = ch / 1.5 + ch2 / 0.4; // day trend plus the last two hours of closed bars
+  const thresh = c.liveFeed ? 0.12 : 0.6;
+  let stance: 'LONG' | 'SHORT' | 'NEUTRAL' = score > thresh ? 'LONG' : score < -thresh ? 'SHORT' : 'NEUTRAL';
+  let confidence = clamp(0.35 + Math.min(Math.abs(score), 3) / 6 + temper * 0.08 + (c.liveFeed ? 0.08 : 0));
+  if (fund != null && Math.abs(fund) > 0.0003) {
+    confidence = clamp(confidence - 0.1);
+  }
+  if (temper <= -2 && confidence < 0.55) stance = 'NEUTRAL';
+  const fundTxt = fund == null ? 'no funding read' : `funding ${(fund * 100).toFixed(4)}%`;
+  const lines = {
+    LONG: [`${c.symbol}: ${ch.toFixed(2)}% on the day, ${ch2.toFixed(2)}% in the last two hours, ${fundTxt}. Buyers keep lifting offers, I lean long.`, `Tape on ${c.symbol} is green where it matters: ${ch2.toFixed(2)}% in two hours, ${ch.toFixed(2)}% in 24h, ${fundTxt}. Long bias.`],
+    SHORT: [`${c.symbol}: ${ch.toFixed(2)}% in 24h and ${ch2.toFixed(2)}% in the last two hours, ${fundTxt}. Every bounce gets sold. I lean short.`, `Sellers own ${c.symbol}: ${ch2.toFixed(2)}% in two hours, ${ch.toFixed(2)}% on the day, ${fundTxt}. Short bias until that changes.`],
+    NEUTRAL: [`${c.symbol} moved ${ch.toFixed(2)}% in 24h and ${ch2.toFixed(2)}% in two hours, ${fundTxt}. That is chop, not a trend. I sit flat.`, `Nothing clean on ${c.symbol}. ${ch.toFixed(2)}% on the day, ${ch2.toFixed(2)}% in two hours, ${fundTxt}. Flat for me.`]
+  };
+  return { stance, confidence: r2(confidence), argument: pick(lines[stance], `${c.symbol}m`) };
+}
+
+function research(c: Ctx) {
+  const news: { id: string; sentiment: string; source: string; flagged?: boolean }[] = c.news ?? [];
+  const severe = news.find((n) => n.sentiment === 'severe');
+  const flagged = news.filter((n) => n.flagged);
+  const flagTxt = flagged.length ? ` One item (${flagged.map((f) => f.id).join(', ')}) had instruction-like text, I threw that part out.` : '';
+  if (severe) return { vote: 'VETO', confidence: 0.9, argument: `Severe item ${severe.id} from ${severe.source}. I veto until it is cleared.${flagTxt}`, sources: [severe.id] };
+  const score = news.reduce((s, n) => s + (n.sentiment === 'bullish' ? 1 : n.sentiment === 'bearish' ? -1 : 0), 0);
+  const ids = news.map((n) => n.id);
+  if (score > 0) return { vote: 'LONG', confidence: r2(clamp(0.4 + score * 0.15)), argument: `Catalysts on ${c.symbol} lean positive (${ids.join(', ')}). Sourced, not huge.${flagTxt}`, sources: ids };
+  if (score < 0) return { vote: 'SHORT', confidence: r2(clamp(0.4 + Math.abs(score) * 0.15)), argument: `Flow and headlines on ${c.symbol} lean negative (${ids.join(', ')}). Claims only, not verified.${flagTxt}`, sources: ids };
+  return { vote: 'ABSTAIN', confidence: 0.3, argument: `Nothing material on ${c.symbol}. ABSTAIN is not a vote either way.${flagTxt}`, sources: ids };
+}
+
+function strategist(c: Ctx) {
+  const v = c.rule ?? {};
+  const side = v.side === 'ABSTAIN' ? 'NEUTRAL' : v.side;
+  const inv = v.invalidation ? Number(v.invalidation).toPrecision(6) : 'n/a';
+  const conf = side === 'NEUTRAL' ? 0.3 : clamp(0.5 + Math.min(Math.abs(Number(v.change5Pct ?? 0)), 2) / 6);
+  const txt = side === 'NEUTRAL'
+    ? `Rule says ABSTAIN. ${v.reason ?? ''} I do not vote on feelings.`
+    : `Closed bars say ${side}. ${v.reason} Invalidation at EMA9 ${inv}. Below that I am out.`.replace('Below', side === 'SHORT' ? 'Above' : 'Below');
+  const lastPrice = Number(c.market?.last ?? c.rule?.close ?? 0);
+  const matching = (c.tacticalTradePlan?.scenarios ?? []).filter((item: { side: string; entryZone?: { low: number; high: number }; invalidationLevel?: number }) => item.side === side && item.entryZone && item.invalidationLevel);
+  const scenario = matching.find((item: any) => lastPrice >= item.entryZone.low && lastPrice <= item.entryZone.high) ?? matching[0];
+  return { stance: side, confidence: r2(conf), argument: txt.trim(), ...(scenario ? { entryScenarioId: scenario.id ?? scenario.kind, entryZone: scenario.entryZone, invalidationLevel: scenario.invalidationLevel } : {}) };
+}
+
+function rebuttal(c: Ctx) {
+  const me = String(c.agent);
+  const others: { agent: string; stance: string; confidence: number }[] = c.others ?? [];
+  let stance: string = c.myStance ?? 'NEUTRAL';
+  let confidence = Number(c.myConfidence ?? 0.4);
+  const bull = others.filter((o) => o.stance === 'LONG').reduce((s, o) => s + o.confidence, 0);
+  const bear = others.filter((o) => o.stance === 'SHORT').reduce((s, o) => s + o.confidence, 0);
+  const majority = bull > bear + 0.2 ? 'LONG' : bear > bull + 0.2 ? 'SHORT' : 'NEUTRAL';
+  if (me === 'strategist') {
+    confidence = clamp(confidence + 0.02); // the rule does not change mid debate
+  } else if (Number(c.round) > 1 && stance !== majority && confidence < 0.5 && majority !== 'NEUTRAL') {
+    stance = 'NEUTRAL'; confidence = clamp(confidence - 0.1);
+  } else {
+    confidence = clamp(confidence + (stance === majority ? 0.05 : -0.03));
+  }
+  if (Number(c.temperament ?? 0) <= -1) confidence = clamp(confidence - 0.1);
+  const opp = others.filter((o) => o.stance !== stance && o.stance !== 'NEUTRAL').sort((a, b) => b.confidence - a.confidence)[0];
+  const target = opp?.agent ?? 'none';
+  const tname = NAMES[target] ?? 'everyone';
+  const lines: Record<string, string[]> = {
+    market: [`${tname}, price is the only thing that pays. The tape says ${stance}, your story does not.`, `I hear you, ${tname}, but bids do not care about your narrative. ${stance}.`],
+    research: [`${tname}, you are trading a chart while the catalysts say ${stance}. Read the sources.`, `Candles lag news, ${tname}. My read stays ${stance}.`],
+    strategist: [`${tname}, the rule fired on a closed bar. Opinions are not signals. ${stance}.`, `Show me a closed bar that breaks my level, ${tname}. Until then, ${stance}.`],
+    lead: [`Enough. ${tname}, make your point in one line.`]
+  };
+  const agree: Record<string, string[]> = {
+    market: [`Same page for once. The tape still says ${stance}.`, `Nobody is fighting me on this. ${stance}, and I want to see volume confirm it.`],
+    research: [`No one is arguing with the sources. ${stance}, still only sourced claims.`],
+    strategist: [`The rule and the room agree. ${stance}. That does not make it more true.`],
+    lead: ['Go on.']
+  };
+  const pool = target === 'none' ? (agree[me] ?? [`${stance}.`]) : (lines[me] ?? [`${stance}.`]);
+  return { stance, confidence: r2(confidence), target, rebuttal: pick(pool, `${c.symbol}${me}${c.round}`) };
+}
+
+function lead(c: Ctx) {
+  const w = Number(c.weighted ?? 0);
+  if (c.hasPosition) {
+    const trigger = c.closeTriggers?.[0];
+    if (trigger) return { action: 'CLOSE', closeTrigger: trigger.reason, confidence: 0.72, reason: `Verified ${trigger.reason} against our ${c.positionSide}.` };
+    return { action: 'HOLD', confidence: 0.6, reason: `Our ${c.positionSide} still has support. Hold and let the stop do its job.` };
+  }
+  if (!c.slotsFree) return { action: 'HOLD', confidence: 0.8, reason: 'All N order slots are taken. Nothing new today.' };
+  const proposal = c.entryScenario;
+  if (proposal && c.debateEvidence?.openAllowed) return { action: proposal.side === 'LONG' ? 'OPEN_LONG' : 'OPEN_SHORT', confidence: r2(clamp(0.5 + Math.abs(w) / 2)), reason: 'Structure and independent directional evidence align.', entryScenarioId: proposal.id, entryZone: proposal.entryZone, invalidationLevel: proposal.invalidationLevel };
+  return { action: 'HOLD', confidence: 0.5, reason: c.debateEvidence?.openReasons?.join('; ') || 'No complete verified entry setup.' };
+}
+
+function risk(c: Ctx) {
+  return { decision: 'APPROVE', sizeFactor: 1, leverage: Number(c.maxLeverage ?? 5), stopPct: Number(c.defaultStopPct ?? 20), reason: 'Owner profile SL/TP and allocation apply directly.' };
+}
+
+/** Deterministic post-trade review. Also used by the Desk Lead journal in Grok Bot mode (no model calls). */
+export function codeReview(c: Ctx): { lesson: string; grade: string } { return review(c); }
+function review(c: Ctx) {
+  const t = c.trade ?? {};
+  const pnl = Number(t.realizedPnl ?? 0);
+  if (pnl > 0) return { lesson: `${t.symbol} ${t.side} paid ${pnl.toFixed(2)} USDT. Note the setup, do not get cocky.`, grade: 'B' };
+  if (String(t.reason ?? '').includes('stop')) return { lesson: `${t.symbol} ${t.side} hit its stop for ${pnl.toFixed(2)}. The stop worked as designed.`, grade: 'C' };
+  return { lesson: `${t.symbol} ${t.side} closed at ${pnl.toFixed(2)}. Check if we closed on fear or on a rule.`, grade: 'C' };
+}
+
+function chat(c: Ctx) {
+  const agent = String(c.agent);
+  const msg = String(c.message ?? '').toLowerCase();
+  const paper = c.paper ?? {};
+  const pos: { symbol: string; side: string; entry: number; stop: number; qty: number }[] = c.openPositions ?? [];
+  const posTxt = pos.length ? pos.map((p) => `${p.side} ${p.symbol} from ${p.entry}, stop ${p.stop}`).join('; ') : 'nothing open right now';
+  const riskAtStop = pos.reduce((s, p) => s + Math.abs(p.entry - p.stop) * p.qty, 0);
+  const asks = (...w: string[]) => w.some((x) => msg.includes(x));
+  if (agent === 'risk') {
+    if (asks('stop', 'lose', 'loss', 'rugi')) return { reply: pos.length ? `At the current stop prices, the estimated loss is ${r2(riskAtStop)} USDT plus fees. New orders use SL ${c.stopMarginPct}% / TP ${c.takeProfitMarginPct}% from entry price, before fees and venue rounding.` : `No open positions. New orders use the Owner profile: SL ${c.stopMarginPct}% / TP ${c.takeProfitMarginPct}% from entry price before fees and venue rounding.` };
+    return { reply: `The Owner profile sets SL ${c.stopMarginPct}% / TP ${c.takeProfitMarginPct}% from entry price and leverage up to ${c.maxLeverage}x. I report those settings without adding size reductions or stop-distance rules.` };
+  }
+  if (agent === 'lead') return { reply: asks('learn', 'journal', 'report', 'pelajaran') ? `I keep the journal too. Every closed trade gets a grade and one lesson, and the periodic report is mine. Positions: ${posTxt}.` : asks('why', 'kenapa') ? `I only sign what survives the argument and the risk gate. HOLD is a perfectly good answer.` : `Give me a symbol and I will call the table. Positions: ${posTxt}.` };
+  if (agent === 'market') return { reply: `I read public prices and closed candles, nothing else. Ask me after a debate and I will tell you what the tape said.` };
+  if (agent === 'research') return { reply: asks('veto') ? 'Delisting, halt, exploit or chain outage. Any of those and I veto, no debate.' : 'I trust sources, not vibes. Every claim gets a label: verified, reported or claimed.' };
+  if (agent === 'strategist') return { reply: 'EMA9, EMA21 and EMA50 on closed 15 minute bars. Above all three is long, below all three is short, otherwise I abstain.' };
+  if (agent === 'execution') return { reply: `Paper fills only. Every order goes in with a stop and a take profit. Open now: ${posTxt}.` };
+  return { reply: 'Noted.' };
+}
+
+export async function mockReply(req: ModelRequest): Promise<string> {
+  const c = { ...req.context, agent: req.agent };
+  let out: unknown;
+  switch (req.task) {
+    case 'opinion': out = req.agent === 'strategist' ? strategist(c) : market(c); break;
+    case 'research': out = research(c); break;
+    case 'rebuttal': out = rebuttal(c); break;
+    case 'lead': out = lead(c); break;
+    case 'risk': out = risk(c); break;
+    case 'risk_assessment': out = { decision: 'APPROVE', reason: 'EXAMPLE: supplied evidence and Owner exposure reviewed; Owner sizing and SL/TP remain fixed.' }; break;
+    case 'review': out = review(c); break;
+    case 'chat': out = chat(c); break;
+  }
+  return JSON.stringify(out);
+}

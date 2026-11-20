@@ -1,0 +1,301 @@
+import type express from 'express';
+import { z } from 'zod';
+import type { AgentId } from '../contracts.js';
+import {
+  LOCAL_CLI_AGENTS,
+  buildLocalCliEnv,
+  runLocalCliInference,
+  type LocalCliAgentSpec
+} from '../agents/local.js';
+import { safe } from '../../redact.js';
+import type { SetupApiDeps } from './setup.js';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+
+function findBinPath(bin: string): string | null {
+  const env = buildLocalCliEnv(process.env);
+  const pathVal = env.PATH ?? env.Path ?? '';
+  const dirs = pathVal.split(path.delimiter).filter(Boolean);
+  const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      const candidate = path.join(dir, `${bin}${ext}`);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+export function mountLocalAgentsRoutes(app: express.Express, deps: SetupApiDeps): void {
+  app.get('/api/setup/local-agents', (_req, res) => {
+    const snap = deps.settings.current();
+    const leadAgent = snap.effective.agents.lead;
+    const agents = LOCAL_CLI_AGENTS.map((a) => {
+      const binPath = findBinPath(a.bin);
+      const isDefault = leadAgent.provider === 'local' && leadAgent.model.startsWith(`${a.id}:`);
+      return {
+        id: a.id,
+        bin: a.bin,
+        label: a.label,
+        installed: Boolean(binPath),
+        docs: a.docs,
+        loginCommand: a.login.join(' ') || `${a.bin} login`,
+        hint: binPath ? 'Installed on PATH' : 'Not found on PATH',
+        models: [...a.models],
+        activeModel: isDefault ? leadAgent.model : null
+      };
+    });
+
+    res.json({
+      ok: true,
+      agents,
+      settings: {}
+    });
+  });
+
+  app.post('/api/setup/local-agents/status', async (req, res) => {
+    const schema = z.object({
+      id: z.string(),
+      verify: z.boolean().optional()
+    });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ ok: false, detail: 'Agent id required.' });
+      return;
+    }
+
+    const def = LOCAL_CLI_AGENTS.find((a) => a.id === parsed.data.id);
+    if (!def) {
+      res.status(400).json({ ok: false, detail: 'Unknown local agent.' });
+      return;
+    }
+
+    const binPath = findBinPath(def.bin);
+    if (!binPath) {
+      res.json({ ok: true, installed: false, connected: false, state: 'missing' });
+      return;
+    }
+
+    if (!parsed.data.verify) {
+      res.json({ ok: true, installed: true, connected: false, state: 'installed_unverified' });
+      return;
+    }
+
+    const testRes = await runLocalCliInference({
+      agentSpec: `${def.id}:default`,
+      prompt: 'Reply with only OK.',
+      timeoutMs: 60_000
+    });
+
+    res.json({
+      ok: true,
+      installed: true,
+      connected: testRes.ok,
+      state: testRes.ok ? 'ready' : 'unauthenticated'
+    });
+  });
+
+  app.post('/api/setup/local-agents/test', async (req, res) => {
+    const rawModel = String(req.body?.model ?? '').trim();
+    if (!rawModel) {
+      res.status(400).json({ ok: false, detail: 'Choose a local agent first.' });
+      return;
+    }
+    const [agentId, ...rest] = rawModel.split(':');
+    const model = rest.join(':') || 'default';
+    const def = LOCAL_CLI_AGENTS.find((a) => a.id === agentId);
+    if (!def) {
+      res.status(400).json({ ok: false, detail: 'Unknown local agent.' });
+      return;
+    }
+    const binPath = findBinPath(def.bin);
+    if (!binPath) {
+      res.status(400).json({ ok: false, detail: `Install ${def.label} (${def.bin}) on PATH first.` });
+      return;
+    }
+    const testRes = await runLocalCliInference({
+      agentSpec: `${def.id}:${model}`,
+      prompt: 'Reply with only OK.',
+      timeoutMs: 90_000
+    });
+    if (testRes.ok) {
+      res.json({
+        ok: true,
+        detail: 'Connection verified: the agent returned a valid model reply.'
+      });
+    } else {
+      res.status(400).json({
+        ok: false,
+        detail: testRes.error ?? 'The agent did not return a valid reply. Check native CLI sign-in.'
+      });
+    }
+  });
+
+  app.post('/api/setup/local-agents/connect', async (req, res) => {
+    const schema = z.object({
+      id: z.string(),
+      assignAll: z.boolean().optional(),
+      model: z.string().min(1).max(200).optional()
+    });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ ok: false, state: 'CONFIGURATION FAILED', detail: 'Agent id required.' });
+      return;
+    }
+
+    const def = LOCAL_CLI_AGENTS.find((a) => a.id === parsed.data.id);
+    if (!def) {
+      res.status(400).json({ ok: false, state: 'CONFIGURATION FAILED', detail: 'Unknown local agent.' });
+      return;
+    }
+
+    const selectedModel = parsed.data.model?.trim() || 'default';
+    const supportedModelCliIds = ['claude', 'codex', 'antigravity'];
+    if (selectedModel !== 'default' && !supportedModelCliIds.includes(def.id)) {
+      res.status(422).json({ ok: false, active: false, state: 'MODEL NOT VERIFIED', detail: `Explicit model selection is not supported by the ${def.label} launcher yet. Use its default model or add the documented CLI model flag.` });
+      return;
+    }
+
+    const binPath = findBinPath(def.bin);
+    if (!binPath) {
+      res.status(400).json({ ok: false, state: 'NOT INSTALLED', detail: `Install ${def.label} (${def.bin}) on PATH first.` });
+      return;
+    }
+    const testRes = await runLocalCliInference({
+      agentSpec: `${def.id}:${selectedModel}`,
+      prompt: 'Reply with only OK.',
+      timeoutMs: 90_000
+    });
+
+    if (!testRes.ok) {
+      res.status(400).json({
+        ok: false,
+        active: false,
+        state: 'VERIFICATION FAILED',
+        detail: testRes.error ?? 'The selected CLI agent did not return a valid reply. Check native CLI sign-in.'
+      });
+      return;
+    }
+
+    const modelString = `${def.id}:${selectedModel}`;
+    const assignAll = parsed.data.assignAll !== false;
+    const targetRoles = assignAll
+      ? (['lead', 'market', 'research', 'strategist', 'risk', 'execution'] as const)
+      : (['lead'] as const);
+    const nextAgents: Record<string, { provider: 'local'; model: string }> = {};
+    for (const role of targetRoles) {
+      nextAgents[role] = { provider: 'local', model: modelString };
+    }
+    await deps.settings.apply(
+      { agents: nextAgents as any },
+      deps.settings.current().activeVersion
+    );
+
+    if (deps.runtime?.updateState) {
+      deps.runtime.updateState((draft) => {
+        for (const role of targetRoles) {
+          const agent = draft.agents[role as AgentId];
+          if (agent) {
+            agent.provider = 'local';
+            agent.model = modelString;
+            agent.configuredProvider = 'local';
+            agent.configuredModel = modelString;
+            agent.invokedProvider = 'local';
+            agent.invokedModel = modelString;
+            agent.actualModel = modelString;
+            agent.fellBackToMock = false;
+            agent.fallbackReason = null;
+            agent.executionStatus = 'IDLE';
+          }
+        }
+      });
+    }
+
+    if (deps.secrets) {
+      const updates: Record<string, string> = {
+        DEFAULT_PROVIDER: 'local',
+        DEFAULT_MODEL: modelString
+      };
+      for (const role of targetRoles) {
+        const prefix = `AGENT_${role.toUpperCase()}`;
+        updates[`${prefix}_PROVIDER`] = 'local';
+        updates[`${prefix}_MODEL`] = modelString;
+      }
+      deps.secrets.writeSecrets(updates);
+    }
+
+    res.json({
+      ok: true,
+      active: true,
+      state: 'CONNECTED & ACTIVE',
+      model: modelString,
+      detail: `Connected & Active: ${modelString}. ${assignAll ? 'Applied to all six agents.' : ''}`
+    });
+  });
+
+  app.post('/api/setup/local-agents/login', (req, res) => {
+    const id = String(req.body?.id ?? '');
+    const def = LOCAL_CLI_AGENTS.find((a) => a.id === id);
+    if (!def) {
+      res.status(400).json({ ok: false, detail: 'Unknown local agent.' });
+      return;
+    }
+    const cmd = def.login.length ? `${def.bin} ${def.login.join(' ')}` : `${def.bin} login`;
+    res.json({ ok: true, detail: `Run "${cmd}" in your terminal to sign in.` });
+  });
+
+  app.post('/api/setup/local-agents/models', (req, res) => {
+    const id = String(req.body?.id ?? '');
+    const def = LOCAL_CLI_AGENTS.find((a) => a.id === id);
+    if (!def) {
+      res.status(400).json({ ok: false, detail: 'Unknown local agent.' });
+      return;
+    }
+    const binPath = findBinPath(def.bin);
+    res.json({
+      ok: true,
+      discovery: {
+        version: null,
+        completeness: binPath ? 'verified_installed' : 'static_fallback',
+        error: null,
+        authentication: binPath ? 'ready' : 'unverified',
+        configuredModel: 'default',
+        models: def.models.map((m) => ({ id: m, source: 'provider_documented' }))
+      }
+    });
+  });
+
+  app.post('/api/setup/local-agents/settings', (_req, res) => {
+    res.status(501).json({
+      ok: false,
+      detail: 'Per-CLI settings persistence and runtime model application are not implemented in this endpoint. Choose models in Setup > Models instead.'
+    });
+  });
+
+  const researchPolicy = {
+    enabled: true,
+    autoResearch: false,
+    maxDepth: 1,
+    mcpTools: {} as Record<string, string[]>
+  };
+
+  app.get('/api/setup/local-agents/research', (_req, res) => {
+    res.json({
+      ok: true,
+      policy: researchPolicy,
+      connections: [],
+      activity: []
+    });
+  });
+
+  app.post('/api/setup/local-agents/research', (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    if (typeof body.autoResearch === 'boolean') researchPolicy.autoResearch = body.autoResearch;
+    if (typeof body.enabled === 'boolean') researchPolicy.enabled = body.enabled;
+    if (typeof body.maxDepth === 'number') researchPolicy.maxDepth = body.maxDepth;
+    if (body.mcpTools && typeof body.mcpTools === 'object' && !Array.isArray(body.mcpTools)) {
+      researchPolicy.mcpTools = body.mcpTools as Record<string, string[]>;
+    }
+    res.json({ ok: true, detail: 'Research settings saved.', policy: researchPolicy });
+  });
+}
