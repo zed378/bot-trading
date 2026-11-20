@@ -4161,6 +4161,7 @@ export function createReplacementRuntime(
   }, 1000);
   fastReflexTimer.unref();
 
+  let indodaxPaperCycleActive = false;
   return {
     hub,
     marketHub,
@@ -4169,6 +4170,64 @@ export function createReplacementRuntime(
     snapshot,
     updateState,
     triggerCycle,
+    runIndodaxPaperCycle: async (input: {
+      symbol: string;
+      accountRef: string;
+      marketSummary: Record<string, unknown>;
+      hasPosition: boolean;
+      signal: AbortSignal;
+    }) => {
+      const snap = snapshot();
+      if (input.signal.aborted || snap.killed || snap.mode !== 'PAPER' || snap.auto.running || indodaxPaperCycleActive) {
+        return {
+          status: 'cancelled' as const,
+          verdict: null
+        };
+      }
+      const current = Number(input.marketSummary.ask ?? input.marketSummary.last ?? 0);
+      if (!Number.isFinite(current) || current <= 0) {
+        return { status: 'incomplete' as const, verdict: null };
+      }
+      const trading = options.settings?.current().effective.trading;
+      const stopPct = trading?.defaultStopPct ?? 5;
+      const tpPct = trading?.takeProfitPct ?? stopPct * (trading?.takeProfitR ?? 2);
+      const policy: CyclePolicy = {
+        minEntryConfidencePct: trading?.minEntryConfidencePct ?? 65,
+        requireTwoOfThreeAnalysts: true,
+        maxLeverage: 1,
+        defaultStopPct: stopPct,
+        takeProfitPct: tpPct,
+        takeProfitR: trading?.takeProfitR ?? 2,
+        maxPositions: 1,
+        supportsLimitGtc: false,
+        hasPosition: input.hasPosition,
+        positionSide: input.hasPosition ? 'LONG' : undefined,
+        profileBaselineStopPrice: { long: (current * (1 - stopPct / 100)).toFixed(8), short: null },
+        profileBaselineTpPrice: { long: (current * (1 + tpPct / 100)).toFixed(8), short: null }
+      };
+      const assignments = options.settings?.current().effective.agents;
+      indodaxPaperCycleActive = true;
+      updateState((draft) => { draft.auto.running = true; });
+      try {
+        return await cycleRunner.run({
+          reason: 'schedule',
+          accountRef: input.accountRef,
+          symbol: input.symbol,
+          evidenceId: randomUUID(),
+          configVersion: options.settings?.current().activeVersion ?? 1,
+          policy,
+          marketSummary: input.marketSummary,
+          signal: input.signal,
+          routeForRole: (role) => assignments?.[role]?.route ?? 'LOCAL'
+        });
+      } finally {
+        indodaxPaperCycleActive = false;
+        updateState((draft) => {
+          draft.auto.running = false;
+          draft.auto.lastCycleAt = Date.now();
+        });
+      }
+    },
     updateAutoSettings,
     handleCommand,
     reportsService: options.reportsService,
@@ -5311,7 +5370,10 @@ export async function startReplacementServer(
     grokKeyRegistry: grokRegistry
   });
   const server = createServer(app);
-  server.once('close', () => { void app.locals.indodaxStopWorker?.stop().catch(() => {}); });
+  server.once('close', () => {
+    app.locals.indodaxPaperAgent?.stop();
+    void app.locals.indodaxStopWorker?.stop().catch(() => {});
+  });
   const wss = attachOfficeWebSocket(server, runtime, runtime.hub);
 
   await new Promise<void>((resolve, reject) => {

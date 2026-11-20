@@ -12,6 +12,12 @@ Pemantau mengadopsi jumlah aset yang **sudah dimiliki**, lalu menyimpan `stop_pr
 
 Pemantau tidak membeli, membuka short, memakai leverage, menentukan ukuran baru, atau mengaktifkan Auto Trading. Harga entry yang diisi adalah referensi cost basis Owner, bukan fill yang diklaim dari exchange. Entry Indodax otomatis dari enam agen belum tersedia dalam jalur desk utama.
 
+### Otomasi agen dalam PAPER
+
+Panel Indodax juga menyediakan sesi **Otomasi agen · PAPER** yang memakai enam agen dan penetapan model Desk yang sama. Sesi ini membaca candle 4 jam dan quote publik Indodax, mensimulasikan LONG dan penjualan pada bid, serta menerima satu pasangan per sesi. Anggaran simulasi diisi dalam mata uang pasangan (IDR atau USDT); maksimal setengah kas simulasi dialokasikan ke satu entry. Setelan batas rugi harian Desk menghentikan siklus entry berikutnya. Stop loss dan take profit hanya simulasi; biaya exchange tidak dimasukkan.
+
+Sesi tersebut tersimpan di memori proses, tidak memakai saldo maupun kredensial Indodax, dan hilang saat server berhenti. Hentikan siklus agen untuk mencegah keputusan baru; pemantau simulasi tetap memeriksa SL/TP selama server hidup. Gunakan **Tutup posisi simulasi** untuk menutup posisi dengan harga bid publik. Jalur ini tidak membuat order riil. Entry agent LIVE Indodax tetap tidak tersedia.
+
 ## Office
 
 1. Buka panel **Indodax**, masukkan key lewat form tersamar, lalu **Simpan terenkripsi**.

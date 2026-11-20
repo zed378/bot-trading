@@ -22,6 +22,7 @@ import { mountResearchRoutesV2, type ResearchRouteDeps } from './api/research.js
 import { mountWalletRoutes, type WalletRouteDeps } from './api/wallet.js';
 import { mountLocalAgentsRoutes } from './api/local-agents.js';
 import { mountIndodaxRoutes } from './api/indodax.js';
+import { mountIndodaxPaper } from './api/indodax-paper.js';
 import { mountIndodaxStopRoutes } from './api/indodax-stops.js';
 import { mountProviderProfileRoutes } from './api/provider-profiles.js';
 
@@ -97,6 +98,7 @@ export function createReplacementApp(
 
   mountOperationsRoutes(app, runtime);
   mountIndodaxRoutes(app);
+  app.locals.indodaxPaperAgent = mountIndodaxPaper(app, runtime);
   app.locals.indodaxStopWorker = mountIndodaxStopRoutes(app, { isKilled: () => runtime.snapshot().killed });
   if (options.providerProfileDeps) mountProviderProfileRoutes(app, options.providerProfileDeps);
 

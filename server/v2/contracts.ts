@@ -243,6 +243,20 @@ export interface OfficeRuntime {
   snapshot(): OfficeState;
   dispatch(input: OfficeCommand): Promise<OfficeReply>;
   triggerCycle?(symbol?: string, reason?: string): Promise<{ ok: boolean; message: string; cycleId?: string }>;
+  runIndodaxPaperCycle?(input: {
+    symbol: string;
+    accountRef: string;
+    marketSummary: Record<string, unknown>;
+    hasPosition: boolean;
+    signal: AbortSignal;
+  }): Promise<{
+    status: 'completed' | 'incomplete' | 'cancelled';
+    verdict: {
+      action: 'OPEN_LONG' | 'OPEN_SHORT' | 'HOLD' | 'CLOSE';
+      thesis: { stop: string; tp: string | null; orderType: string } | null;
+      rejectionReason: string | null;
+    } | null;
+  }>;
   updateAutoSettings?(patch: Record<string, unknown>): OfficeState;
   updateState?(mutator: (draft: OfficeState) => OfficeState | void): OfficeState;
   handleCommand?(input: { text: string; agent?: string; clientRequestId?: string; conversationId?: string }): Promise<{ ok: boolean; command?: string; reply?: string; error?: string }>;

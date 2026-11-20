@@ -5,6 +5,7 @@ import { useI18n } from '../i18n';
 import { officeFetch } from '../officeApi';
 import { IndodaxStops } from './IndodaxStops';
 import { IndodaxCredentials } from './IndodaxCredentials';
+import { IndodaxPaperAgent } from './IndodaxPaperAgent';
 
 function SpotChart({ data }: { data: IndodaxAnalysis }) {
   const container = useRef<HTMLDivElement>(null);
@@ -68,7 +69,7 @@ export function Indodax() {
   return <section className="panel integration-panel" aria-labelledby="indodax-title">
     <div className="panel-head"><h2 id="indodax-title">Indodax · Spot</h2><span className="badge">{id ? 'Analisis publik' : 'Public analysis'}</span></div>
     <p className="wallet-note">{id ? 'Data Indodax tanpa API key. Harga memakai mata uang pasangan, terpisah dari saldo dan order desk USDT.' : 'Indodax data without API keys. Prices use the pair quote currency, separate from the USDT desk balance and orders.'}</p>
-    <p className="wallet-note">{id ? 'Order entry Indodax dari desk utama belum tersedia. Bagian SL di bawah dapat melindungi aset yang didaftarkan melalui pemantau tersendiri.' : 'Main desk Indodax entries are not available. The SL section below can protect adopted holdings through a separate monitor.'}</p>
+    <p className="wallet-note">{id ? 'Otomasi agen Indodax tersedia dalam PAPER terpisah. Entry LIVE Indodax dari agen belum diaktifkan.' : 'Indodax agent automation is available in a separate PAPER session. LIVE Indodax agent entries are not enabled.'}</p>
     <div className="setup-nav">
       <label>{id ? 'Pasangan' : 'Pair'} <select aria-label="Indodax pair" value={symbol} onChange={e => setSymbol(e.target.value)} disabled={!pairs.length || busy}>
         {!pairs.some(p => p.symbol === symbol) && <option value={symbol}>{symbol}</option>}
@@ -77,6 +78,7 @@ export function Indodax() {
       <label>Timeframe <select aria-label="Indodax timeframe" value={tf} onChange={e => setTf(e.target.value as IndodaxTimeframe)} disabled={busy}><option value="4h">4h</option><option value="1d">1d</option></select></label>
       <button type="button" disabled={busy} onClick={() => { setBusy(true); setData(null); setError(''); setRetry(n => n + 1); }}>{id ? 'Muat ulang' : 'Refresh'}</button>
     </div>
+    <IndodaxPaperAgent symbol={symbol} />
     {busy && <p role="status">{id ? 'Mengambil data Indodax…' : 'Loading Indodax data…'}</p>}
     {error && <p role="alert">{error}</p>}
     {data && <>
