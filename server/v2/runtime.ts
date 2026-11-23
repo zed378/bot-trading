@@ -4209,7 +4209,7 @@ export function createReplacementRuntime(
       indodaxPaperCycleActive = true;
       updateState((draft) => { draft.auto.running = true; });
       try {
-        return await cycleRunner.run({
+        const out = await cycleRunner.run({
           reason: 'schedule',
           accountRef: input.accountRef,
           symbol: input.symbol,
@@ -4220,6 +4220,11 @@ export function createReplacementRuntime(
           signal: input.signal,
           routeForRole: (role) => assignments?.[role]?.route ?? 'LOCAL'
         });
+        const failures = out.roleResults
+          .filter((r) => r.status !== 'completed')
+          .map((r) => `${r.role}: ${r.errorReason ?? r.status}`)
+          .join('; ');
+        return { status: out.status, verdict: out.verdict, failures: failures || undefined };
       } finally {
         indodaxPaperCycleActive = false;
         updateState((draft) => {

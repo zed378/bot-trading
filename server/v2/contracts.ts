@@ -256,6 +256,7 @@ export interface OfficeRuntime {
       thesis: { stop: string; tp: string | null; orderType: string } | null;
       rejectionReason: string | null;
     } | null;
+    failures?: string;
   }>;
   updateAutoSettings?(patch: Record<string, unknown>): OfficeState;
   updateState?(mutator: (draft: OfficeState) => OfficeState | void): OfficeState;
