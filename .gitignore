@@ -47,3 +47,5 @@ MPU_GANDRING_LIVE_OPERATIONAL_FORENSIC_AUDIT.md
 audit_mendalam_dan_prompt_perbaikan_mpu_gandring.md
 *.sqlite
 *.sqlite-journal
+
+node_modules

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { officeFetch, applyAndRestartOffice } from '../web/src/officeApi.js';
+import { officeFetch, applyAndRestartOffice, readOfficeJson } from '../web/src/officeApi.js';
 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
@@ -36,4 +36,11 @@ it('surfaces a rejected settings apply without polling or claiming a restart', a
     .mockResolvedValueOnce(new Response('{"ok":false,"detail":"Invalid saved settings"}', { status: 400 }));
   await expect(applyAndRestartOffice()).rejects.toThrow('Invalid saved settings');
   expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
+it('turns empty and malformed Office responses into actionable errors', async () => {
+  await expect(readOfficeJson(new Response('', { status: 500 }), 'saving model settings'))
+    .rejects.toThrow(/empty response.*500.*saving model settings/i);
+  await expect(readOfficeJson(new Response('<html>error</html>', { status: 500 }), 'loading model settings'))
+    .rejects.toThrow(/invalid response.*500.*loading model settings/i);
 });

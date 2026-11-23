@@ -496,6 +496,7 @@ export function mountSetupApiRoutes(app: express.Express, deps: SetupApiDeps): v
   });
 
   app.post('/api/setup/models', async (req, res) => {
+    try {
     const rawBody = (req.body ?? {}) as Record<string, unknown>;
     const bodySchema = z
       .object({
@@ -574,6 +575,14 @@ export function mountSetupApiRoutes(app: express.Express, deps: SetupApiDeps): v
     const result = await deps.settings.apply(patch as any, expected);
     const status = result.applyStatus === 'conflict' ? 409 : result.applyStatus === 'failed' ? 400 : 200;
     res.status(status).json({ ok: result.applyStatus === 'applied', detail: 'Model configuration saved.', ...result });
+    } catch {
+      if (!res.headersSent) {
+        res.status(500).json({
+          ok: false,
+          error: 'Could not save model settings. Reload Setup before retrying; the save may have completed.'
+        });
+      }
+    }
   });
 
   app.get('/api/setup/jev', (_req, res) => {

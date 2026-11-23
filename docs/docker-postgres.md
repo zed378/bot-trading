@@ -18,6 +18,22 @@ Buka **http://127.0.0.1:8787**. Stack memulai desk dalam PAPER dengan Auto Tradi
 
 Pengaturan desk tersimpan di skema PostgreSQL `desk`. Referensi SL, hasil order jual dan kredensial Indodax tersimpan di skema `indodax_stops`. Kedua skema terpisah agar saldo IDR dan inventori spot tidak dianggap sebagai ledger entry USDT.
 
+## Aplikasi lokal Windows, hanya database di Docker
+
+Untuk memakai Codex CLI atau Claude Code yang terpasang dan login di Windows:
+
+```powershell
+npm run dev:local
+```
+
+Perintah ini menghentikan container aplikasi/gateway, mempertahankan database dan volumenya, lalu memublikasikan PostgreSQL hanya pada `127.0.0.1:15432`. Backend dan Vite berjalan langsung di Windows. Buka **http://127.0.0.1:5173**; API pada **http://127.0.0.1:8787/api/health**. Mode awal PAPER dan Auto Trading off.
+
+Password database dan master key tetap dibaca dari file `.secrets/` yang sama; kredensial dashboard yang tersimpan tetap dapat didekripsi. Tidak perlu menyalin secret ke `.env`. Hentikan proses pengembangan dengan Ctrl+C; database tetap berjalan.
+
+Buka Setup dan bagian Local CLI untuk memeriksa serta memilih Codex atau Claude Code. Login menggunakan CLI masing-masing pada akun Windows yang sama. Verifikasi koneksi dapat menggunakan kuota model; pemilihan agen dilakukan secara eksplisit melalui dashboard.
+
+Untuk kembali ke semua container, hentikan proses lokal terlebih dahulu kemudian jalankan `docker compose up -d app gateway`.
+
 ## Kredensial dashboard
 
 Pilih **Indodax** pada menu alat Office untuk memasukkan API Key dan API Secret melalui input password. **Simpan terenkripsi** hanya menyimpan kredensial. **Periksa izin key** mengirim pembacaan akun; tidak mengirim order. Trading harus diizinkan, sedangkan penarikan crypto dan fiat harus terbukti nonaktif.

@@ -11,6 +11,21 @@ export async function officeFetch(input: RequestInfo | URL, init: RequestInit = 
   } finally { clearTimeout(timer); }
 }
 
+/** Parse Office JSON responses without surfacing the browser's unhelpful empty-body SyntaxError. */
+export async function readOfficeJson<T>(response: Response, operation: string): Promise<T> {
+  const body = await response.text();
+  if (!body.trim()) {
+    throw new Error(
+      `The server returned an empty response (HTTP ${response.status}) while ${operation}. Reload setup before retrying; the save may have completed.`
+    );
+  }
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    throw new Error(`The server returned an invalid response (HTTP ${response.status}) while ${operation}.`);
+  }
+}
+
 export async function applyAndRestartOffice(): Promise<void> {
   const before = await (await officeFetch('/api/health')).json() as { instanceId?: string };
   const response = await officeFetch('/api/setup/restart', { method: 'POST' });

@@ -11,6 +11,8 @@ x-app-environment: &app-environment
   INDODAX_MASTER_KEY_FILE: /run/secrets/indodax_master_key
   CREDENTIAL_MASTER_KEY_FILE: /run/secrets/indodax_master_key
   MPU_STATIC_WEB_DIR: /app/dist/web
+  CODEX_HOME: /tmp/mpu-codex-home
+  CODEX_AUTH_FILE: /run/codex-auth/auth.json
 
 services:
   init-secrets:
@@ -54,7 +56,11 @@ services:
       TRADING_MODE: PAPER
       AUTO_TRADING: "off"
     secrets: [postgres_app_password, indodax_master_key]
-    volumes: [app_state:/state]
+    volumes:
+      - app_state:/state
+      - ${USERPROFILE}/.codex/auth.json:/run/codex-auth/auth.json:ro
+    tmpfs:
+      - /tmp/mpu-codex-home:mode=0700,uid=1000,gid=1000
     ports: ["127.0.0.1:8787:8080"]
     networks: [database, egress]
     healthcheck:

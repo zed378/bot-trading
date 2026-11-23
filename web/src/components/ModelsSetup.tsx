@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { officeFetch as fetch } from '../officeApi';
+import { officeFetch as fetch, readOfficeJson } from '../officeApi';
 import { useI18n } from '../i18n';
 
 interface Choice { id: string; label: string; tags: string[]; reasoningLevels?: string[] }
@@ -41,18 +41,29 @@ export function ModelsSetup({ available, appMode }: { available: boolean; appMod
     setCustom((d.agents ?? []).some((a) => a.custom)); setKeys({});
   }
 
-  const load = async () => {
+  const load = async (): Promise<boolean> => {
     try {
       const r = await fetch('/api/setup/models');
-      const d: ModelsInfo = await r.json();
-      if (!r.ok || !d.ok) throw new Error('unavailable');
+      const d = await readOfficeJson<ModelsInfo & { error?: string }>(r, 'loading model settings');
+      if (!r.ok || !d.ok) throw new Error(d.error || 'Model settings are unavailable.');
       setInfo(d); restore(d);
-    } catch { setMessage(lang === 'id' ? 'Pengaturan model tidak tersedia. Buka kembali Pengaturan untuk mencoba lagi.' : 'Model setup is unavailable. Reopen Setup to try again.'); setOk(false); }
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : (lang === 'id' ? 'Pengaturan model tidak tersedia. Muat ulang Pengaturan untuk mencoba lagi.' : 'Model setup is unavailable. Reload Setup to try again.'));
+      setOk(false);
+      return false;
+    }
   };
   useEffect(() => { if (appMode !== 'grokbot') void load(); }, [appMode]);
 
   useEffect(() => {
-    const refresh = () => { if (!editing) void load(); else void fetch('/api/setup/models').then(r => r.json()).then(d => { if (d.ok) setInfo(d); }); };
+    const refresh = () => {
+      if (!editing) void load();
+      else void fetch('/api/setup/models')
+        .then(r => readOfficeJson<ModelsInfo>(r, 'refreshing model settings'))
+        .then(d => { if (d.ok) setInfo(d); })
+        .catch(error => setMessage(error instanceof Error ? error.message : 'Unable to refresh model settings.'));
+    };
     window.addEventListener('mpu-models-updated', refresh);
     return () => window.removeEventListener('mpu-models-updated', refresh);
   }, [editing, appMode]);
@@ -116,11 +127,24 @@ export function ModelsSetup({ available, appMode }: { available: boolean; appMod
     setBusy(true); setMessage('');
     try {
       const r = await fetch('/api/setup/models', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ defaultReasoning: defaultReasoning || null, reasoning, defaultProvider: selection.provider, defaultModel: selection.model, ...(custom ? { agents } : {}), keys: Object.fromEntries(Object.entries(keys).filter(([p]) => used.includes(p))) }) });
-      const d: { ok: boolean; detail?: string; error?: string } = await r.json();
+      const d = await readOfficeJson<{ ok: boolean; detail?: string; error?: string }>(r, 'saving model settings');
       setOk(r.ok && d.ok); setMessage(d.detail || d.error || (lang === 'id' ? 'Gagal menyimpan pilihan model.' : 'Unable to save model choices.'));
-      if (r.ok && d.ok) { await load(); setEditing(false); }
-    } catch { setOk(false); setMessage(lang === 'id' ? 'Meja trading tidak terjangkau. Pilihan model gagal dikonfirmasi.' : 'Office not reachable. Model choices were not confirmed saved.'); }
-    finally { setKeys({}); setBusy(false); }
+      if (r.ok && d.ok) {
+        const refreshed = await load();
+        if (refreshed) setEditing(false);
+        else {
+          setOk(true);
+          setMessage(lang === 'id'
+            ? 'Pilihan tersimpan, tetapi konfirmasi pembaruan belum tersedia. Muat ulang Pengaturan sebelum mencoba menyimpan lagi.'
+            : 'Settings were saved, but the refresh could not be confirmed. Reload Setup before trying again.');
+        }
+      }
+    } catch (error) {
+      setOk(false);
+      setMessage(error instanceof Error
+        ? error.message
+        : (lang === 'id' ? 'Meja trading tidak terjangkau. Muat ulang Pengaturan sebelum mencoba lagi.' : 'Office is unreachable. Reload Setup before trying again.'));
+    } finally { setKeys({}); setBusy(false); }
   }
 
   return <section className="setup-models">

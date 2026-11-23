@@ -68,6 +68,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "dev:local": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/dev-local.ps1",
     "prepack": "npm run build",
     "dev": "concurrently -k --kill-others-on-fail -n server,web -c yellow,cyan \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "tsx watch server/index.ts",

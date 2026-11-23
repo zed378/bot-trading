@@ -1,0 +1,8 @@
+# Local Node.js/CLI development; keep the existing PostgreSQL volume and secrets.
+services:
+  database:
+    networks: [database, local-host]
+    ports:
+      - "127.0.0.1:15432:5432"
+networks:
+  local-host:

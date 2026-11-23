@@ -1,5 +1,5 @@
 FROM node:26-bookworm-slim AS system
-RUN apt-get update && apt-get install -y --no-install-recommends python3 python-is-python3 git chromium ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python-is-python3 git chromium ca-certificates bubblewrap && rm -rf /var/lib/apt/lists/*
 ENV CHROME_PATH=/usr/bin/chromium
 
 FROM system AS build
@@ -17,6 +17,7 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean --force
+RUN npm install --global --ignore-scripts --no-audit --no-fund @openai/codex@0.171.0
 COPY --from=build /app/dist ./dist
 COPY server/v2/agents/personas ./dist/server/server/v2/agents/personas
 COPY skills ./skills
