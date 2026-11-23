@@ -11,6 +11,9 @@ export interface IndodaxPair {
   quantityIncrement: string | null;
   minQuote: string | null;
   minQuantity: string | null;
+  /** Percent from /api/pairs (0.3 means 0.3%). Null when absent or unreadable; may exclude tax and clearing. */
+  feeTakerPct?: string | null;
+  feeMakerPct?: string | null;
 }
 export interface IndodaxCandle {
   time: number;

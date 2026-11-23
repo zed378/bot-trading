@@ -6,15 +6,17 @@ import { analyzeIndodax } from './indodax.js';
 import type { OfficeRuntime } from '../contracts.js';
 import { addDecimals, compareDecimals as cmp, divDecimals, mulDecimals, quantize, subDecimals } from '../execution/decimal.js';
 import { DecimalStringSchema } from '../contracts.js';
+import { character, episodeStats, minTargetPrice, roundTripNetPerUnit, routeSpot, toBars, ROUND_TRIP_MIN_EDGE } from '../../market/indodax-params.js';
 
 const budgetSchema = z.string().regex(/^\d{1,12}(?:\.\d{1,8})?$/).refine(v => Number(v) > 0);
 const startSchema = z.object({ symbol: z.string().max(32), budget: budgetSchema, intervalMin: z.number().int().min(1).max(1440) }).strict();
-type PaperPosition = { quantity: string; entry: string; stop: string; target: string | null };
+// cost and feeRate are quote-currency values; feeRate is a fraction (0.003 = 0.3%) or null when the pair publishes no fee.
+type PaperPosition = { quantity: string; entry: string; stop: string; target: string | null; cost: string; feeRate: string | null };
 type PaperTrade = { side: 'BUY' | 'SELL'; price: string; quantity: string; reason: string; at: number };
 
 // This paper session uses public market data and never reads or sends exchange credentials.
 export function mountIndodaxPaper(app: express.Express, runtime: OfficeRuntime, client = new IndodaxPublicClient()) {
-  let state = { running: false, busy: false, symbol: '', quote: '', initialCash: '0', cash: '0', lastPrice: '', lastAction: '', lastCycleAt: 0, trades: [] as PaperTrade[] };
+  let state = { running: false, busy: false, symbol: '', quote: '', initialCash: '0', cash: '0', lastPrice: '', lastAction: '', lastCycleAt: 0, trades: [] as PaperTrade[], episodes: [] as number[] };
   let position: PaperPosition | null = null;
   let cycleTimer: ReturnType<typeof setTimeout> | undefined;
   let monitorTimer: ReturnType<typeof setTimeout> | undefined;
@@ -23,7 +25,10 @@ export function mountIndodaxPaper(app: express.Express, runtime: OfficeRuntime, 
   let positionEpoch = 0;
   let closeBusy = false;
   const base = '/api/indodax/paper-agent';
-  const view = () => ({ ...state, mode: 'PAPER' as const, protection: position ? 'SIMULATED_SL_TP' : 'NONE', position });
+  const view = () => {
+    const { episodes, ...rest } = state;
+    return { ...rest, mode: 'PAPER' as const, protection: position ? 'SIMULATED_SL_TP' : 'NONE', position, stats: episodeStats(episodes) };
+  };
 
   function pauseAgents() {
     state.running = false;
@@ -51,7 +56,10 @@ export function mountIndodaxPaper(app: express.Express, runtime: OfficeRuntime, 
   const closePaperPosition = (bid: string, reason: string) => {
     if (!position) return;
     const quantity = position.quantity;
-    state.cash = addDecimals(state.cash, mulDecimals(quantity, bid));
+    const gross = mulDecimals(quantity, bid);
+    const proceeds = position.feeRate ? subDecimals(gross, mulDecimals(gross, position.feeRate)) : gross;
+    state.cash = addDecimals(state.cash, proceeds);
+    state.episodes = [...state.episodes, Number(subDecimals(proceeds, position.cost))].slice(-500);
     state.trades = [{ side: 'SELL' as const, price: bid, quantity, reason, at: Date.now() }, ...state.trades].slice(0, 50);
     position = null;
     positionEpoch += 1;
@@ -127,6 +135,16 @@ export function mountIndodaxPaper(app: express.Express, runtime: OfficeRuntime, 
       if (checkStops(market.bid)) return;
 
       const accountRef = 'indodax-paper-local';
+      const bars = toBars(market.candles);
+      const taker = market.pair.feeTakerPct ? Number(market.pair.feeTakerPct) / 100 : null;
+      const advisory = {
+        // KORO Math Atlas subset. Context only; it never changes order size or relaxes a guard.
+        character: character(bars),
+        spotRoute: routeSpot(bars),
+        takerFeePct: market.pair.feeTakerPct ?? null,
+        minTakeProfit: taker === null ? null : minTargetPrice(Number(market.ask), taker, taker).toPrecision(8),
+        sessionStats: episodeStats(state.episodes)
+      };
       const marketSummary = {
         venue: 'Indodax',
         marketType: 'spot',
@@ -139,9 +157,10 @@ export function mountIndodaxPaper(app: express.Express, runtime: OfficeRuntime, 
         timeframe: '4h',
         indicators: market.indicators,
         candles: market.candles.slice(-40),
+        advisory,
         availableCash: state.cash,
         currentPosition: position,
-        constraints: `Spot only, prices and paper budget are in ${market.pair.quote}. LONG buys and CLOSE sells only the simulated holding. SHORT, leverage and limit orders are unavailable. Maximum allocation per entry is half of remaining paper cash. Every entry must include a valid stop below ask; take profit is optional.`
+        constraints: `Spot only, prices and paper budget are in ${market.pair.quote}. LONG buys and CLOSE sells only the simulated holding. SHORT, leverage and limit orders are unavailable. Maximum allocation per entry is half of remaining paper cash. Every entry must include a valid stop below ask; take profit is optional. When advisory.takerFeePct is set, paper fills pay that taker fee on both legs and a take profit below advisory.minTakeProfit is rejected.`
       };
       const result = await runtime.runIndodaxPaperCycle?.({
         symbol: state.symbol,
@@ -176,19 +195,25 @@ export function mountIndodaxPaper(app: express.Express, runtime: OfficeRuntime, 
         return;
       }
       const quantity = quantize(divDecimals(divDecimals(state.cash, '2'), fresh.ask, 24), pair.quantityIncrement, 'floor');
-      const cost = mulDecimals(quantity, fresh.ask);
-      if (cmp(quantity, pair.minQuantity) < 0 || cmp(cost, pair.minQuote) < 0) {
+      const notional = mulDecimals(quantity, fresh.ask);
+      if (cmp(quantity, pair.minQuantity) < 0 || cmp(notional, pair.minQuote) < 0) {
         state.lastAction = 'Entry skipped: simulated order is below Indodax pair minimum';
         return;
       }
-      position = {
-        quantity,
-        entry: fresh.ask,
-        stop: stop.data,
-        target: target.success && cmp(target.data, fresh.ask) > 0 ? target.data : null
-      };
+      const feeRate = pair.feeTakerPct && cmp(pair.feeTakerPct, '0') > 0 ? divDecimals(pair.feeTakerPct, '100', 12) : null;
+      const cost = feeRate ? addDecimals(notional, mulDecimals(notional, feeRate)) : notional;
+      const targetPrice = target.success && cmp(target.data, fresh.ask) > 0 ? target.data : null;
+      if (feeRate && targetPrice) {
+        const fee = Number(feeRate);
+        if (roundTripNetPerUnit(Number(fresh.ask), Number(targetPrice), fee, fee) <= Number(fresh.ask) * ROUND_TRIP_MIN_EDGE) {
+          state.lastAction = 'Entry skipped: take profit does not clear round-trip taker fees plus 0.1%';
+          return;
+        }
+      }
+      position = { quantity, entry: fresh.ask, stop: stop.data, target: targetPrice, cost, feeRate };
       positionEpoch += 1;
       state.cash = subDecimals(state.cash, cost);
+      // `cost` includes the entry fee, so a BUY row shows the price and quantity but cash moves by `cost`.
       state.trades = [{ side: 'BUY' as const, price: fresh.ask, quantity, reason: 'six-agent PAPER verdict', at: Date.now() }, ...state.trades].slice(0, 50);
       state.lastAction = `Paper BUY ${quantity} ${state.symbol} at ${fresh.ask}`;
       scheduleMonitor();
@@ -239,7 +264,7 @@ export function mountIndodaxPaper(app: express.Express, runtime: OfficeRuntime, 
       state.running = true;
       state.lastAction = 'Resuming agent cycles; existing paper position retained';
     } else {
-      state = { running: true, busy: false, symbol, quote, initialCash: parsed.data.budget, cash: parsed.data.budget, lastPrice: '', lastAction: 'Starting PAPER cycle', lastCycleAt: 0, trades: [] };
+      state = { running: true, busy: false, symbol, quote, initialCash: parsed.data.budget, cash: parsed.data.budget, lastPrice: '', lastAction: 'Starting PAPER cycle', lastCycleAt: 0, trades: [], episodes: [] };
     }
     positionEpoch += 1;
     scheduleSessionGuard();

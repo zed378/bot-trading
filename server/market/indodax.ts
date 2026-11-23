@@ -63,7 +63,10 @@ function pairOf(value: unknown): IndodaxPair | null {
     throw new IndodaxDataError('Indodax returned inconsistent pair metadata.');
   }
   const optional = (key: string) => p[key] === undefined || p[key] === null ? null : decimal(p[key], true);
+  // Fees are advisory. A bad fee field must not hide the whole pair list.
+  const fee = (key: string) => { try { return optional(key); } catch { return null; } };
   return {
+    feeTakerPct: fee('trade_fee_percent_taker'), feeMakerPct: fee('trade_fee_percent_maker'),
     symbol, tickerId: p.ticker_id, asset, quote,
     maintenance: flag(p.is_maintenance), suspended: flag(p.is_market_suspended),
     quantityIncrement: optional('quantity_increment'), minQuote: optional('trade_min_base_currency'), minQuantity: optional('trade_min_traded_currency')

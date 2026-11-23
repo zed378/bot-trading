@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react';
-import { officeFetch } from '../officeApi';
+import { officeFetch, readOfficeJson } from '../officeApi';
 import { useI18n } from '../i18n';
 
-interface PaperPosition { quantity: string; entry: string; stop: string; target: string | null }
+interface PaperPosition { quantity: string; entry: string; stop: string; target: string | null; feeRate: string | null }
+interface PaperStats {
+  n: number; winRate: number; payoffRR: number | null; profitFactor: number | null; expectancy: number;
+  breakEvenWinRate: number | null; kellyRaw: number | null; maxDrawdown: number; recoveryFactor: number | null;
+}
 interface PaperTrade { side: 'BUY' | 'SELL'; price: string; quantity: string; reason: string; at: number }
 interface PaperView {
   mode: 'PAPER'; running: boolean; busy: boolean; symbol: string; quote: string;
   initialCash: string; cash: string; lastPrice: string; lastAction: string; lastCycleAt: number;
-  protection: string; position: PaperPosition | null; trades: PaperTrade[];
+  protection: string; position: PaperPosition | null; trades: PaperTrade[]; stats: PaperStats | null;
 }
 
 export function IndodaxPaperAgent({ symbol }: { symbol: string }) {
@@ -24,7 +28,7 @@ export function IndodaxPaperAgent({ symbol }: { symbol: string }) {
 
   const refresh = async (signal?: AbortSignal) => {
     const response = await officeFetch('/api/indodax/paper-agent', { signal });
-    const body = await response.json();
+    const body = await readOfficeJson<PaperView & { error?: string }>(response, 'loading Indodax paper status');
     if (!response.ok) throw new Error(body.error || 'Paper agent status unavailable.');
     setStatus(body);
   };
@@ -43,7 +47,7 @@ export function IndodaxPaperAgent({ symbol }: { symbol: string }) {
       const response = await officeFetch(`/api/indodax/paper-agent/${kind}`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
       }, 30_000);
-      const result = await response.json();
+      const result = await readOfficeJson<PaperView & { error?: string }>(response, 'sending the Indodax paper command');
       if (!response.ok) throw new Error(result.error || 'Paper agent action failed.');
       setStatus(result);
       setMessage(kind === 'start' ? (id ? 'Simulasi agen dimulai.' : 'Agent simulation started.') :
@@ -61,8 +65,8 @@ export function IndodaxPaperAgent({ symbol }: { symbol: string }) {
       ? 'Memakai enam agen dan model yang dikonfigurasi di Desk, serta candle/harga publik Indodax 4 jam. Simulasi terpisah dari akun dan order nyata; key Indodax tidak digunakan.'
       : 'Uses the six configured Desk agents and public Indodax 4h prices/candles. This simulation is separate from the account and real orders; the Indodax key is not used.'}</p>
     <p className="wallet-note">{id
-      ? 'Simulasi tidak menghitung biaya exchange. Jeda siklus mempertahankan posisi; pemantau SL/TP berjalan selama backend aktif. Data simulasi hilang saat backend dimulai ulang.'
-      : 'Fees are not modeled. Pausing agent cycles retains the position; its simulated SL/TP monitor runs while the backend is up. Paper state is lost when the backend restarts.'}</p>
+      ? 'Fee taker dari metadata pasangan Indodax dikenakan di kedua sisi bila tersedia; pajak dan clearing tidak termasuk. Jeda siklus mempertahankan posisi; pemantau SL/TP berjalan selama backend aktif. Data simulasi hilang saat backend dimulai ulang.'
+      : 'The taker fee from the Indodax pair metadata is charged on both legs when published; tax and clearing are not included. Pausing agent cycles retains the position; its simulated SL/TP monitor runs while the backend is up. Paper state is lost when the backend restarts.'}</p>
     <div className="setup-nav">
       <label>{id ? 'Saldo simulasi' : 'Paper balance'} ({symbol.endsWith('IDR') ? 'IDR' : 'USDT'})
         <input value={budget} onChange={e => setBudget(e.target.value)} inputMode="decimal" placeholder={symbol.endsWith('IDR') ? '1000000' : '100'} disabled={busy || Boolean(status?.running) || Boolean(status?.position)} />
@@ -82,6 +86,15 @@ export function IndodaxPaperAgent({ symbol }: { symbol: string }) {
       {status.lastAction && <p>{id ? 'Siklus terakhir' : 'Last cycle'}: {status.lastAction}</p>}
       {status.lastCycleAt > 0 && <p>{new Date(status.lastCycleAt).toLocaleString()}</p>}
     </div>}
+    {status?.stats && <p className="wallet-note" aria-label={id ? 'Statistik sesi' : 'Session stats'}>
+      {id ? 'Episode tertutup' : 'Closed episodes'}: {status.stats.n} · WR {(status.stats.winRate * 100).toFixed(1)}%
+      {status.stats.breakEvenWinRate !== null && ` (${id ? 'impas' : 'break-even'} ${(status.stats.breakEvenWinRate * 100).toFixed(1)}%)`}
+      {status.stats.payoffRR !== null && ` · RR ${status.stats.payoffRR.toFixed(2)}`}
+      {status.stats.profitFactor !== null && ` · PF ${status.stats.profitFactor.toFixed(2)}`}
+      {` · ${id ? 'Ekspektasi' : 'Expectancy'} ${money(String(status.stats.expectancy))}`}
+      {` · MDD ${money(String(status.stats.maxDrawdown))}`}
+      {status.stats.n < 30 && ` · ${id ? 'sampel kecil, bukan bukti edge' : 'small sample, not evidence of an edge'}`}
+    </p>}
     {status?.trades.length ? <ul aria-label={id ? 'Riwayat simulasi' : 'Paper trade history'}>
       {status.trades.slice(0, 8).map((trade, index) => <li key={`${trade.at}-${index}`}>{trade.side} {trade.quantity} @ {money(trade.price)} · {trade.reason}</li>)}
     </ul> : null}
