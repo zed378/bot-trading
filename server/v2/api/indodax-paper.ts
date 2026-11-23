@@ -142,7 +142,7 @@ export function mountIndodaxPaper(app: express.Express, runtime: OfficeRuntime, 
         character: character(bars),
         spotRoute: routeSpot(bars),
         takerFeePct: market.pair.feeTakerPct ?? null,
-        minTakeProfit: taker === null ? null : minTargetPrice(Number(market.ask), taker, taker).toPrecision(8),
+        minTakeProfit: taker === null ? null : String(Number(minTargetPrice(Number(market.ask), taker, taker).toPrecision(8))),
         sessionStats: episodeStats(state.episodes)
       };
       const marketSummary = {
