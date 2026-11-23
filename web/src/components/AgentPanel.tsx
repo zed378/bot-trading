@@ -161,14 +161,16 @@ export function AgentPanel({ state, id, onClose, command, conversationId, onNewC
       </div>
       <div className="ap-quick" hidden={!!selected || archives !== null}>{quickList.map((q) => <button key={q} disabled={busy || busyRemote} onClick={() => void send(q)}>{q}</button>)}</div>
       <form className="ap-input" hidden={!!selected || archives !== null} onSubmit={(e) => { e.preventDefault(); void send(text); }}>
-        <textarea rows={3} disabled={busy || busyRemote || !!selected} name="agent-message" aria-describedby={error ? 'agent-message-error' : undefined} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => {
+        {error && <p id="agent-message-error" className="ap-error" role="alert">{error}</p>}
+        <textarea rows={2} disabled={busy || busyRemote || !!selected} name="agent-message" aria-describedby={error ? 'agent-message-error' : undefined} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(text); }
         }} aria-label={`Message ${a.name}`} placeholder={`${t('apMsgPlaceholder')} ${a.name}...`} maxLength={32000} />
-        <button type="submit" disabled={busy || busyRemote || !!selected} aria-busy={busy}>{t('apSendBtn')}</button>
-        {retry && <button type="button" disabled={busy || busyRemote} onClick={() => void send(retry.text, retry.id)}>{retry.newSend ? 'Retry message' : 'Check or retry request'}</button>}
-        {error && <p id="agent-message-error" role="alert">{error}</p>}
+        <div className="ap-actions">
+          {retry && <button type="button" className="ap-retry-btn" disabled={busy || busyRemote} onClick={() => void send(retry.text, retry.id)}>{retry.newSend ? (lang === 'id' ? 'Kirim ulang' : 'Retry message') : (lang === 'id' ? 'Cek / coba lagi' : 'Check or retry request')}</button>}
+          <button type="submit" className="ap-send-btn" disabled={busy || busyRemote || !!selected} aria-busy={busy}>{t('apSendBtn')}</button>
+        </div>
       </form>
-      {(selected || archives !== null) && error && <p role="alert">{error}</p>}
+      {(selected || archives !== null) && error && <p className="ap-error" role="alert">{error}</p>}
     </aside>
   );
 }
