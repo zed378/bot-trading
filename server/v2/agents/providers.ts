@@ -140,7 +140,13 @@ export function createOfficialProviderCaller(
           signal
         });
         if (!res.ok) {
-          throw new Error(`Provider ${provider} HTTP ${res.status}`);
+          let detail = '';
+          try {
+            const text = (await res.text()).replace(/\s+/g, ' ').trim().slice(0, 300);
+            if (text) detail = ` body: ${text}`;
+          } catch { /* body unreadable */ }
+          const retryAfter = res.headers.get('retry-after');
+          throw new Error(`Provider ${provider} HTTP ${res.status}${retryAfter ? ` retry-after ${retryAfter}` : ''}${detail}`);
         }
         return await res.json();
       } catch (err) {
