@@ -218,7 +218,7 @@ export function mountSetupApiRoutes(app: express.Express, deps: SetupApiDeps): v
               provider: z.string().optional(),
               model: z.string().min(1).max(200).optional(),
               reasoning: z.string().nullable().optional(),
-              route: z.enum(['LOCAL', 'GROK', 'MIRROR_READ_ONLY']).optional()
+              route: z.enum(['LOCAL']).optional()
             })
           )
           .optional()

@@ -9,7 +9,7 @@ import {
 } from './providers.js';
 import { buildRoleSystemPrompt } from './roles.js';
 
-export type RoleRoute = 'LOCAL' | 'GROK' | 'MIRROR_READ_ONLY';
+export type RoleRoute = 'LOCAL';
 export type RoleStance = 'LONG' | 'SHORT' | 'HOLD' | 'CLOSE' | 'NEUTRAL';
 
 export interface ThesisInvalidationPredicate {
