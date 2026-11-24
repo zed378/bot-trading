@@ -54,7 +54,7 @@ export function ModelsSetup({ available, appMode }: { available: boolean; appMod
       return false;
     }
   };
-  useEffect(() => { if (appMode !== 'grokbot') void load(); }, [appMode]);
+  useEffect(() => { void load(); }, [appMode]);
 
   useEffect(() => {
     const refresh = () => {
@@ -68,7 +68,6 @@ export function ModelsSetup({ available, appMode }: { available: boolean; appMod
     return () => window.removeEventListener('mpu-models-updated', refresh);
   }, [editing, appMode]);
 
-  if (appMode === 'grokbot') return <p className="wallet-note">{t('setupModelsGrokbotNote')}</p>;
   if (!info) return <p className="wallet-note">{message || t('setupModelsLoading')}</p>;
   const provider = (p: string) => (info.providers ?? []).find((v) => v.provider === p) ?? (info.providers ?? []).find((v) => v.provider === 'mock') ?? (info.providers ?? [])[0] ?? { provider: p, keyEnv: null, keySet: false, source: '', defaultModel: 'mock-desk-v1', models: [] };
   const used = [...new Set([selection.provider, ...(custom ? Object.values(agents).map((a) => a.provider) : [])])];

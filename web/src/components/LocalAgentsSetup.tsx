@@ -34,22 +34,13 @@ interface ExternalSupervisor {
 
 const EXTERNAL_SUPERVISORS: ExternalSupervisor[] = [
   {
-    id: 'grokbot',
-    name: 'Grok Bot',
-    category: 'xAI Bot Platform',
-    docs: 'https://x.ai',
-    summaryEn: 'Monitors the desk from your Grok Bot team chat without touching keys.',
-    summaryId: 'Memantau meja trading dari obrolan tim Grok Bot kamu tanpa menyentuh kunci.',
-    prompt: 'You are supervising Trading Agent Mpu Gandring on this machine. Read http://127.0.0.1:8787/api/health and /api/reports every 5-15 min. Check open positions, active stops on the exchange, daily loss cap, and equity safety net. Escalate immediately to the owner if any position lacks a stop loss or if health fails twice. Never execute or resize orders. Refer to AGENTS.md for full supervisor protocol.'
-  },
-  {
     id: 'claude_desktop',
     name: 'Claude Cowork / Claude Desktop',
     category: 'Anthropic Desktop App',
     docs: 'https://claude.ai',
     summaryEn: 'Supervises desk health and resting stops via desktop or cowork session.',
     summaryId: 'Memantau kesehatan meja dan stop loss via sesi desktop atau cowork.',
-    prompt: 'Supervise Trading Agent Mpu Gandring on the local machine. Read http://127.0.0.1:8787/api/health, /api/state and /api/reports via web search or local HTTP GET. Ensure all active positions have stops resting on the exchange. If daily loss cap is 90% reached or kill switch is active, notify the owner immediately. Do not touch order keys, change modes, or place trades.'
+    prompt: 'Supervise Trading Agent Mpu Gandring on the local machine. Read http://127.0.0.1:8787/api/health, /api/state and /api/reports via local HTTP GET. Ensure all active Indodax bot stops are healthy. If daily loss cap is 90% reached or kill switch is active, notify the owner immediately. Do not touch order keys, change modes, or place trades.'
   },
   {
     id: 'dot',
@@ -58,7 +49,7 @@ const EXTERNAL_SUPERVISORS: ExternalSupervisor[] = [
     docs: 'https://new.computer',
     summaryEn: 'Personal AI companion keeping watch on trading limits and safety net.',
     summaryId: 'Asisten AI pribadi yang mengawasi batasan trading dan safety net.',
-    prompt: 'You are monitoring the Trading Agent Mpu Gandring desk. Query http://127.0.0.1:8787/api/health and /api/reports periodically. Confirm office is alive, paper/testnet/live mode is steady, and stops are intact. Escalate to the user if safety net is breached or errors occur. Never modify trades.'
+    prompt: 'You are monitoring the Trading Agent Mpu Gandring desk. Query http://127.0.0.1:8787/api/health and /api/reports periodically. Confirm office is alive, paper/live mode is steady, and Indodax bot stops are intact. Escalate to the user if errors occur. Never modify trades.'
   },
   {
     id: 'muse_app',
@@ -67,7 +58,7 @@ const EXTERNAL_SUPERVISORS: ExternalSupervisor[] = [
     docs: 'https://muse.ai',
     summaryEn: 'Consumer app monitoring desk health reports and daily performance.',
     summaryId: 'Aplikasi konsumer yang memantau laporan kesehatan meja dan performa harian.',
-    prompt: 'Supervise the local Trading Agent Mpu Gandring instance. Periodically review desk health via http://127.0.0.1:8787/api/health and latest trade verdicts at /api/reports. Send a brief summary of daily PnL, safety net margin, and resting stops to the owner. Never authorize or change trading orders.'
+    prompt: 'Supervise the local Trading Agent Mpu Gandring instance. Periodically review desk health via http://127.0.0.1:8787/api/health and latest trade verdicts at /api/reports. Send a brief summary of daily PnL and Indodax stop status to the owner. Never authorize or change trading orders.'
   },
   {
     id: 'chatgpt_agent',
@@ -534,8 +525,8 @@ export function LocalAgentsSetup({ available }: { available: boolean }) {
             <b>{lang === 'id' ? 'Integrasi Otomatis Desk Lead' : 'Desk Lead Channel Integration'}</b>
             <p className="wallet-note small" style={{ margin: '4px 0 0' }}>
               {lang === 'id'
-                ? 'Supervisor di atas tidak memerlukan port terbuka tambahan. Desk Lead (server/channels/supervisor.ts) mempublikasikan laporan berkala dan sinyal darurat ke channel Telegram, Discord, Slack, atau WhatsApp kamu secara aman dan read-only.'
-                : 'The supervisors above require no extra open ports. The Desk Lead (server/channels/supervisor.ts) publishes periodic reports and emergency alerts directly to your Telegram, Discord, Slack, or WhatsApp channel in a secure, read-only manner.'}
+                ? 'Supervisor di atas tidak memerlukan port terbuka tambahan. Desk Lead mempublikasikan laporan berkala dan sinyal darurat ke channel Telegram kamu secara aman dan read-only.'
+                : 'The supervisors above require no extra open ports. The Desk Lead publishes periodic reports and emergency alerts directly to your Telegram channel in a secure, read-only manner.'}
             </p>
           </div>
         </div>
