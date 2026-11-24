@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS encrypted_secrets (
@@ -186,43 +186,9 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     halt_reason TEXT,
     updated_at TEXT NOT NULL
   )`,
-  `CREATE TABLE IF NOT EXISTS bridge_inbox (
-    peer_id TEXT NOT NULL,
-    event_id TEXT NOT NULL,
-    event_type TEXT NOT NULL,
-    raw_digest TEXT NOT NULL,
-    key_id TEXT NOT NULL,
-    nonce TEXT NOT NULL,
-    received_at TEXT NOT NULL,
-    expires_at TEXT,
-    status TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    result_json TEXT,
-    PRIMARY KEY (peer_id, event_id)
-  )`,
-  `CREATE TABLE IF NOT EXISTS bridge_outbox (
-    peer_id TEXT NOT NULL,
-    event_id TEXT NOT NULL,
-    event_type TEXT NOT NULL,
-    status TEXT NOT NULL,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    next_attempt_at TEXT NOT NULL,
-    expires_at TEXT,
-    payload_json TEXT NOT NULL,
-    last_error TEXT,
-    acked_at TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (peer_id, event_id)
-  )`,
-  `CREATE TABLE IF NOT EXISTS bridge_nonces (
-    peer_id TEXT NOT NULL,
-    key_id TEXT NOT NULL,
-    nonce TEXT NOT NULL,
-    seen_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    PRIMARY KEY (peer_id, key_id, nonce)
-  )`,
+  `DROP TABLE IF EXISTS bridge_inbox`,
+  `DROP TABLE IF EXISTS bridge_outbox`,
+  `DROP TABLE IF EXISTS bridge_nonces`,
   `CREATE TABLE IF NOT EXISTS conversations (
     conversation_id TEXT PRIMARY KEY,
     account_ref TEXT,

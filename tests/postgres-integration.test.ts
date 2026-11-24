@@ -185,4 +185,39 @@ describe.runIf(process.env.TEST_POSTGRES === '1')('real PostgreSQL 18 in Docker'
       await controller.stop(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
     }
   });
+  it('drops legacy bridge_* tables idempotently while keeping indodax_bot_stops intact', async () => {
+    const { store, schema } = await database();
+    const service = await IndodaxStopService.open({
+      store,
+      exchange: {
+        account: vi.fn(), sell: vi.fn(),
+        pair: async () => ({ symbol: 'BTCIDR', tickerId: 'btc_idr', asset: 'BTC', quote: 'IDR', maintenance: false, suspended: false, quantityIncrement: '0.1', minQuote: '1', minQuantity: '0.1' }),
+        quote: async () => ({ last: '100', observedAt: Date.now() }), lookup: vi.fn()
+      }
+    });
+    await service.arm({ symbol: 'BTCIDR', quantity: '1', entry: '100', stop: '90' });
+    await store.execute('CREATE TABLE IF NOT EXISTS bridge_inbox (peer_id TEXT, event_id TEXT, PRIMARY KEY (peer_id, event_id))');
+    await store.execute('CREATE TABLE IF NOT EXISTS bridge_outbox (peer_id TEXT, event_id TEXT, PRIMARY KEY (peer_id, event_id))');
+    await store.execute('CREATE TABLE IF NOT EXISTS bridge_nonces (peer_id TEXT, key_id TEXT, nonce TEXT, PRIMARY KEY (peer_id, key_id, nonce))');
+    await store.close();
+
+    const reopened = await RuntimeStore.open({ schema });
+    try {
+      const tables = await reopened.execute(
+        `SELECT table_name FROM information_schema.tables WHERE table_schema = ? AND table_name LIKE 'bridge_%'`,
+        [schema]
+      );
+      expect(tables.rows).toHaveLength(0);
+      const stops = await reopened.execute('SELECT status FROM indodax_bot_stops');
+      expect(stops.rows).toEqual([{ status: 'ARMED' }]);
+      const listed = await (await IndodaxStopService.open({
+        store: reopened,
+        exchange: { account: vi.fn(), sell: vi.fn(), pair: vi.fn(), quote: vi.fn(), lookup: vi.fn() }
+      })).list();
+      expect(listed).toHaveLength(1);
+      expect(listed[0]).toMatchObject({ symbol: 'BTCIDR', status: 'ARMED', stop: '90' });
+    } finally {
+      await reopened.close();
+    }
+  });
 });
