@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => {
           copyFileSync(path.resolve('web/public', file), path.join(output, file));
         }
         cpSync(path.resolve('web/public/office-assets'), path.join(output, 'office-assets'), { recursive: true });
-        cpSync(path.resolve('server/agents/personas'), path.resolve('dist/server/server/agents/personas'), { recursive: true });
+        cpSync(path.resolve('server/v2/agents/personas'), path.resolve('dist/server/server/v2/agents/personas'), { recursive: true });
       }
     }],
     // Only expose non-secret values to the browser. Keys never get a VITE_ prefix.
