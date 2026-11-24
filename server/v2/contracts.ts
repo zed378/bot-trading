@@ -243,6 +243,8 @@ export interface OfficeRuntime {
   snapshot(): OfficeState;
   dispatch(input: OfficeCommand): Promise<OfficeReply>;
   triggerCycle?(symbol?: string, reason?: string): Promise<{ ok: boolean; message: string; cycleId?: string }>;
+  /** Shared public client so the routes, the PAPER session and debates use one cache and one request budget. */
+  indodaxClient?: import('../market/indodax.js').IndodaxPublicClient;
   runIndodaxPaperCycle?(input: {
     symbol: string;
     accountRef: string;

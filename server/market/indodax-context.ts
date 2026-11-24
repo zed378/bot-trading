@@ -1,8 +1,25 @@
 import { IndodaxContextSchema, indodaxConstraints, type IndodaxContext } from '../../shared/indodax-context.js';
-import type { IndodaxTimeframe } from '../../shared/indodax.js';
+import type { IndodaxCandle, IndodaxTimeframe } from '../../shared/indodax.js';
 import type { IndodaxPublicClient } from './indodax.js';
 import { analyzeIndodax } from './indodax-analysis.js';
 import { character, minTargetPrice, routeSpot, toBars } from './indodax-params.js';
+import { analyzeSMC } from './smc.js';
+
+/** Swing structure from the closed candles: trend, last break and the swing levels a stop can sit beyond. */
+function structureOf(symbol: string, timeframe: IndodaxTimeframe, candles: IndodaxCandle[]) {
+  const smc = analyzeSMC(
+    candles.map((c) => ({ timestamp: c.time * 1000, open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close), volume: Number(c.volume) })),
+    { symbol, tf: timeframe }
+  );
+  if (!smc) return null;
+  return {
+    trend: smc.marketTrend,
+    lastBreak: smc.lastBreak ? { type: smc.lastBreak.type, price: smc.lastBreak.price } : null,
+    recentSwingLows: smc.recentSwingLows.slice(-2).map((p) => p.price),
+    recentSwingHighs: smc.recentSwingHighs.slice(-2).map((p) => p.price),
+    zone: smc.premiumDiscountZone.currentZone
+  };
+}
 
 /** Number#toString switches to exponent notation for very small values, which the decimal schema rejects. */
 function plainDecimal(value: number): string {
@@ -41,6 +58,7 @@ export async function buildIndodaxContext(
       // KORO Math Atlas subset. Context only; it never changes order size or relaxes a guard.
       character: character(bars),
       spotRoute: routeSpot(bars),
+      structure: structureOf(market.pair.symbol, timeframe, market.candles),
       takerFeePct: market.pair.feeTakerPct ?? null,
       minTakeProfit: taker === null ? null : plainDecimal(minTargetPrice(Number(market.ask), taker, taker))
     },

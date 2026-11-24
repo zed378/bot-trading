@@ -27,14 +27,14 @@ export const ROLE_PRESENTATION: Record<AgentId, RolePresentation> = {
   market: {
     id: 'market',
     name: 'Market Analyst',
-    title: 'Tape, Momentum & Orderflow Hunter',
+    title: 'Tape, Momentum & Volume Reader',
     color: '#38bdf8',
     desk: { x: 15, y: 48 }
   },
   research: {
     id: 'research',
     name: 'Research Analyst',
-    title: 'Whale Flow, Macro & Catalyst Strategist',
+    title: 'News, Macro & Catalyst Investigator',
     color: '#a78bfa',
     desk: { x: 84, y: 43 }
   },

@@ -36,6 +36,7 @@ export const IndodaxContextSchema = z.object({
   advisory: z.object({
     character: z.looseObject({}).nullable(),
     spotRoute: z.looseObject({}).nullable(),
+    structure: z.looseObject({}).nullable(),
     takerFeePct: decimal.nullable(),
     minTakeProfit: decimal.nullable()
   }).strict(),

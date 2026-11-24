@@ -143,12 +143,10 @@ describe('Approved order consistency', () => {
     const leadPrompt = seen.find((s) => s.role === 'lead')?.user ?? '';
     for (const prompt of [riskPrompt, leadPrompt]) {
       expect(prompt).toContain('"side": "LONG"');
-      expect(prompt).toContain('LIMIT_GTC');
-      expect(prompt).toContain('68400');
       expect(prompt).toContain('67000');
       expect(prompt).toContain('72000');
-      expect(prompt).toContain('"maxLeverage": 5');
-      expect(prompt).toContain('266.66');
+      expect(prompt).not.toContain('LIMIT_GTC');
+      expect(prompt).not.toContain('maxLeverage');
     }
   });
 });

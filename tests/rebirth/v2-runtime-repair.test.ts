@@ -272,8 +272,8 @@ describe('Repair C: debate contract', () => {
       providerCaller: async (req) => {
         seen.push({ role: req.role, user: req.user });
         if (req.role === 'risk') {
-          expect(req.user).toContain('maxLeverage');
-          expect(req.user).toContain('LIMIT_GTC');
+          expect(req.user).not.toContain('maxLeverage');
+          expect(req.user).not.toContain('LIMIT_GTC');
           return JSON.stringify({
             stance: 'LONG',
             decision: 'APPROVE',
@@ -351,7 +351,7 @@ describe('Repair C: debate contract', () => {
     expect(out.verdict?.thesis?.orderType).toBe('LIMIT_GTC');
     expect(out.verdict?.thesis?.limitPrice).toBe('68400');
     const riskPrompt = seen.find((s) => s.role === 'risk')?.user ?? '';
-    expect(riskPrompt).toContain('68400');
+    expect(riskPrompt).not.toContain('68400');
   });
 });
 

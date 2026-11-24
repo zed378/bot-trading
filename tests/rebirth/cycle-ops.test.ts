@@ -5,6 +5,7 @@ import { createReplacementApp } from '../../server/v2/app.js';
 import { RoleRunner } from '../../server/v2/agents/runner.js';
 import { CycleRunner } from '../../server/v2/decision/cycle.js';
 import { ReportsService } from '../../server/v2/reports.js';
+import { FakeIndodaxClient } from '../indodax-fixtures.js';
 
 describe('Cycle Ops and Command Integration Verification', () => {
   async function withTestApp(fn: (baseUrl: string, runtime: any) => Promise<void>) {
@@ -30,7 +31,8 @@ describe('Cycle Ops and Command Integration Verification', () => {
     const cycleRunner = new CycleRunner({ roleRunner });
     const runtime = createReplacementRuntime({
       roleRunner,
-      cycleRunner
+      cycleRunner,
+      indodaxClient: new FakeIndodaxClient(['BTCUSDT', 'ETHUSDT'])
     });
 
     const app = createReplacementApp(runtime);

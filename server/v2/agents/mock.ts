@@ -54,8 +54,8 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
         reply = 'Desk Lead online. Portfolio dalam pengawasan ketat dan seluruh 6 agen aktif di pos masing-masing. Ada instruksi khusus, Boss?';
       }
     } else if (role === 'risk') {
-      if (q.includes('stop') || q.includes('rugi') || q.includes('loss') || q.includes('leverage')) {
-        reply = 'Risk gate aktif dengan profil Owner. Batas leverage, safety net modal, dan kewajiban resting stop loss ditegakkan tanpa kompromi.';
+      if (q.includes('stop') || q.includes('rugi') || q.includes('loss')) {
+        reply = 'Risk gate aktif dengan profil Owner. Batas rugi harian, ukuran order, dan kewajiban stop loss ditegakkan tanpa kompromi.';
       } else {
         reply = 'Risk Manager siaga. Setiap usulan tiket dari Execution wajib melalui evaluasi risiko sebelum diizinkan masuk pasar.';
       }
@@ -66,7 +66,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
     } else if (role === 'strategist') {
       reply = 'Trading Strategist siap. Indikator EMA9/21/50 dan level invalidasi teknikal siap memvalidasi konfirmasi setup entri.';
     } else if (role === 'execution') {
-      reply = 'Execution Trader standby. Order dieksekusi dengan presisi tinggi beserta stop loss dan take profit langsung di exchange book.';
+      reply = 'Execution Trader standby. Order market dieksekusi dengan presisi tinggi beserta stop loss dan take profit yang dipantau bot.';
     } else {
       reply = `Agent ${role} standby dan siap bertugas.`;
     }
@@ -153,7 +153,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
           confidence: 0.82,
           claimRefs: [`${symbol}-pos-exec`],
           contraryRefs: [],
-          reasoning: `Tidak ada intervensi order baru. Posisi aktif ${symbol} dipantau ketat dengan resting stop loss di exchange.`
+          reasoning: `Tidak ada intervensi order baru. Posisi aktif ${symbol} dipantau ketat dengan stop loss yang dipantau bot.`
         });
       }
       if (role === 'risk') {
@@ -200,7 +200,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
           confidence: 0.62,
           claimRefs: [`${symbol}-macro-caution`],
           contraryRefs: [],
-          reasoning: `Perlu waspada volatilitas jangka pendek pada ${symbol}. Rasio derivatif mendekati batas jenuh dan open interest melonjak tajam.`
+          reasoning: `Perlu waspada volatilitas jangka pendek pada ${symbol}. Volume candle terakhir melonjak tajam dan harga mendekati area jenuh.`
         });
       }
       // In challenge/rebuttal phase, catalyst confirmation resolves consensus
@@ -242,7 +242,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
         proposedTp: String(tpPrice),
         claimRefs: [`${symbol}-exec-ticket`],
         contraryRefs: [],
-        reasoning: `Candidate order ticket disiapkan: MARKET order ${directionalStance} ${symbol} dengan resting stop di ${stopPrice} dan take profit di ${tpPrice}.`
+        reasoning: `Candidate order ticket disiapkan: MARKET order ${directionalStance} ${symbol} dengan stop di ${stopPrice} dan take profit di ${tpPrice}.`
       });
     }
 
@@ -254,7 +254,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
         confidence: 0.86,
         claimRefs: [`${symbol}-risk-pass`],
         contraryRefs: [],
-        reasoning: `Ukuran posisi dan toleransi leverage ${symbol} berada dalam batas aman Owner profile. Safety net modal terjaga. APPROVED.`
+        reasoning: `Ukuran order dan batas rugi harian ${symbol} berada dalam batas aman Owner profile. APPROVED.`
       });
     }
 

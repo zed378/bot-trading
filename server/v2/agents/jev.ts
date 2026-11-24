@@ -224,7 +224,7 @@ export class JevClient {
                   TRENDING_BULL: 'Higher-timeframe (1h/4h/1d) structure or momentum leans bullish (including pullbacks/retests within an uptrend)',
                   TRENDING_BEAR: 'Higher-timeframe (1h/4h/1d) structure or momentum leans bearish (including bounces/retests within a downtrend)',
                   RANGING: 'Price consolidating or mean-reverting between intraday support and resistance with mixed timeframe momentum',
-                  VOLATILE: 'High-volatility expansion or wide liquidation wicks across timeframes',
+                  VOLATILE: 'High-volatility expansion or wide-range candles across timeframes',
                   UNCERTAIN: 'Corrupted, missing, or completely uninitialized market data only (never use UNCERTAIN for normal timeframe conflicts or consolidation)'
                 }
               },

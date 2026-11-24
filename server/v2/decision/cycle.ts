@@ -86,6 +86,28 @@ interface CandidateOrder {
   leverage: number | null;
 }
 
+/**
+ * The model sees the Indodax spot view of the policy and ticket only. Leverage, a second side,
+ * resting limit orders and slot counts are internal and never named in a prompt.
+ */
+export function promptPolicy(policy: CyclePolicy): Record<string, unknown> {
+  return {
+    minEntryConfidencePct: policy.minEntryConfidencePct,
+    requireTwoOfThreeAnalysts: policy.requireTwoOfThreeAnalysts,
+    defaultStopPct: policy.defaultStopPct,
+    takeProfitPct: policy.takeProfitPct,
+    takeProfitR: policy.takeProfitR,
+    dailyLossLimitPct: policy.dailyLossLimitPct,
+    hasPosition: policy.hasPosition ?? false,
+    baselineStopPrice: policy.profileBaselineStopPrice?.long ?? null,
+    baselineTpPrice: policy.profileBaselineTpPrice?.long ?? null
+  };
+}
+
+export function promptTicket(ticket: CandidateOrder): Record<string, unknown> {
+  return { side: ticket.side === 'LONG' ? 'LONG' : null, orderType: ticket.side ? 'MARKET' : null, stop: ticket.stop, tp: ticket.tp };
+}
+
 export function toPeerDigest(r: RoleResult): Record<string, unknown> {
   const digest: Record<string, unknown> = {
     role: r.role,
@@ -98,8 +120,8 @@ export function toPeerDigest(r: RoleResult): Record<string, unknown> {
     claimRefs: r.claimRefs ?? [],
     contraryRefs: r.contraryRefs ?? []
   };
-  if (r.proposedOrderType) digest.proposedOrderType = r.proposedOrderType;
-  if (r.proposedLimitPrice !== undefined && r.proposedLimitPrice !== null) digest.proposedLimitPrice = r.proposedLimitPrice;
+  // Resting limit orders do not exist on Indodax spot, so a model's limit proposal is never shown to its peers.
+  if (r.proposedOrderType === 'MARKET') digest.proposedOrderType = r.proposedOrderType;
   if (r.proposedStop) digest.proposedStop = r.proposedStop;
   if (r.proposedTp != null) digest.proposedTp = r.proposedTp;
   return digest;
@@ -288,7 +310,7 @@ export class CycleRunner {
           symbol: input.symbol,
           promptContext: {
             marketSummary: input.marketSummary,
-            policy: input.policy
+            policy: promptPolicy(input.policy)
           }
         })
       )
@@ -325,7 +347,7 @@ export class CycleRunner {
             marketSummary: input.marketSummary,
             peerObservations: observeResults.map(toPeerDigest),
             jevReview,
-            policy: input.policy
+            policy: promptPolicy(input.policy)
           }
         })
       )
@@ -349,7 +371,7 @@ export class CycleRunner {
         observations: observeResults.map(toPeerDigest),
         challenges: challengeResults.map(toPeerDigest),
         jevReview,
-        policy: input.policy
+        policy: promptPolicy(input.policy)
       }
     });
     const executionSide = ticketSide(executionResult.stance);
@@ -431,8 +453,8 @@ export class CycleRunner {
         observations: observeResults.map(toPeerDigest),
         challenges: challengeResults.map(toPeerDigest),
         jevReview,
-        policy: input.policy,
-        candidateOrder
+        policy: promptPolicy(input.policy),
+        candidateOrder: promptTicket(candidateOrder)
       }
     });
     roleResults.push(riskResult, executionResult);
@@ -456,8 +478,8 @@ export class CycleRunner {
         riskResult: toPeerDigest(riskResult),
         executionResult: toPeerDigest(executionResult),
         jevReview,
-        policy: input.policy,
-        candidateOrder
+        policy: promptPolicy(input.policy),
+        candidateOrder: promptTicket(candidateOrder)
       }
     });
     roleResults.push(leadResult);
@@ -638,8 +660,8 @@ export class CycleRunner {
           observations: observeResults.map(toPeerDigest),
           challenges: challengeResults.map(toPeerDigest),
           jevReview,
-          policy: input.policy,
-          candidateOrder: ticket
+          policy: promptPolicy(input.policy),
+          candidateOrder: promptTicket(ticket)
         }
       });
       roleResults.push(again);

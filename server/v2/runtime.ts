@@ -35,10 +35,10 @@ import {
 import { createReplacementApp } from './app.js';
 import { BybitMarketHub } from './market/bybit.js';
 import { computeIntelligence, type IntelligenceFrame } from './market/intelligence.js';
-import { RoleRunner } from './agents/runner.js';
+import { RoleRunner, type RoleResult, type RoleTask } from './agents/runner.js';
 import { CycleRunner, type CyclePolicy, type CycleReason } from './decision/cycle.js';
 import { JevClient } from './agents/jev.js';
-import { createOfficialProviderCaller } from './agents/providers.js';
+import { createOfficialProviderCaller, type ProviderAssignment } from './agents/providers.js';
 import { loadProviderProfiles, type SavedProviderProfile } from './settings/provider-profiles.js';
 import { resolveCanonicalRole } from './agents/roles.js';
 import { PROVIDER_KEY_ENV, SecretStore } from './settings/secrets.js';
@@ -52,6 +52,12 @@ import {
   type TradingProfile
 } from './settings/schema.js';
 import type { Position, Stance, Verdict } from '../../shared/office.js';
+import type { IndodaxContext } from '../../shared/indodax-context.js';
+import type { IndodaxTimeframe } from '../../shared/indodax.js';
+import { IndodaxDataError, IndodaxPublicClient } from '../market/indodax.js';
+import { buildIndodaxContext, indodaxPromptSummary } from '../market/indodax-context.js';
+import { resolveIndodaxSymbol } from '../market/indodax-symbol.js';
+import { toIndodaxVerdict } from './decision/indodax-verdict.js';
 import { RuntimeStore } from './store/database.js';
 import { ExecutionAuthorityService } from './accounts/authority.js';
 import { AccountRegistry } from './accounts/registry.js';
@@ -303,6 +309,12 @@ export interface ReplacementRuntimeHandle extends OfficeRuntime {
   readonly marketHub: BybitMarketHub;
   readonly roleRunner: RoleRunner;
   readonly cycleRunner: CycleRunner;
+  readonly indodaxClient: IndodaxPublicClient;
+  runIndodaxDebate(
+    symbol: string,
+    reason?: CycleReason,
+    timeframe?: IndodaxTimeframe
+  ): Promise<{ ok: boolean; message: string; cycleId?: string; verdict?: Verdict }>;
   updateState(mutator: (draft: OfficeState) => OfficeState | void): OfficeState;
   triggerCycle(
     symbol?: string,
@@ -341,6 +353,7 @@ export interface ReplacementRuntimeOptions {
   marketHub?: BybitMarketHub;
   roleRunner?: RoleRunner;
   cycleRunner?: CycleRunner;
+  indodaxClient?: IndodaxPublicClient;
   jevClient?: JevClient;
   env?: Record<string, string | undefined>;
   initialFinancial?: OfficeState['financial'];
@@ -783,35 +796,40 @@ export function createReplacementRuntime(
       }
     });
 
+  const resolveRoleAssignment = (role: RoleId, _version: number): ProviderAssignment => {
+    const settingsSnap = options.settings?.current();
+    const configuredAgent = settingsSnap?.effective?.agents?.[role];
+    const defaultAgent = settingsSnap?.effective?.agents?.lead;
+
+    const upper = role.toUpperCase();
+    const rawProv = (configuredAgent?.provider ?? defaultAgent?.provider ?? env[`AGENT_${upper}_PROVIDER`] ?? env.DEFAULT_PROVIDER ?? '').trim().toLowerCase();
+    const provider = rawProv && rawProv !== 'mock' ? rawProv : (rawProv === 'mock' ? 'mock' : 'unconfigured');
+    const model = (configuredAgent?.model ?? defaultAgent?.model ?? env[`AGENT_${upper}_MODEL`] ?? env.DEFAULT_MODEL ?? 'unconfigured').trim();
+    const reasoningEffort = configuredAgent?.reasoning ?? defaultAgent?.reasoning;
+
+    const secretsMap = options.secrets?.readEnvMap() ?? env;
+    const keyEnv = PROVIDER_KEY_ENV[provider as ApiProviderId] || `${provider.toUpperCase()}_API_KEY`;
+    const apiKey = (secretsMap[keyEnv] ?? env[keyEnv] ?? '').trim();
+    return {
+      provider,
+      model,
+      apiKey: options.providerProfiles?.get(provider)?.apiKey || apiKey || null,
+      baseUrl: options.providerProfiles?.get(provider)?.baseUrl,
+      apiProtocol: options.providerProfiles?.get(provider)?.protocol,
+      reasoningEffort: reasoningEffort ?? undefined,
+      provenOsSandbox: true
+    };
+  };
+
+  // Indodax cycles never reach host tools: those tools read other venues.
+  const indodaxRoleRunner = options.roleRunner ?? new RoleRunner({ providerCaller, resolveAssignment: resolveRoleAssignment });
+
   const roleRunner =
     options.roleRunner ??
     new RoleRunner({
       researchHost: options.researchHost,
       providerCaller,
-      resolveAssignment: (role, _version) => {
-        const settingsSnap = options.settings?.current();
-        const configuredAgent = settingsSnap?.effective?.agents?.[role];
-        const defaultAgent = settingsSnap?.effective?.agents?.lead;
-
-        const upper = role.toUpperCase();
-        const rawProv = (configuredAgent?.provider ?? defaultAgent?.provider ?? env[`AGENT_${upper}_PROVIDER`] ?? env.DEFAULT_PROVIDER ?? '').trim().toLowerCase();
-        const provider = rawProv && rawProv !== 'mock' ? rawProv : (rawProv === 'mock' ? 'mock' : 'unconfigured');
-        const model = (configuredAgent?.model ?? defaultAgent?.model ?? env[`AGENT_${upper}_MODEL`] ?? env.DEFAULT_MODEL ?? 'unconfigured').trim();
-        const reasoningEffort = configuredAgent?.reasoning ?? defaultAgent?.reasoning;
-
-        const secretsMap = options.secrets?.readEnvMap() ?? env;
-        const keyEnv = PROVIDER_KEY_ENV[provider as ApiProviderId] || `${provider.toUpperCase()}_API_KEY`;
-        const apiKey = (secretsMap[keyEnv] ?? env[keyEnv] ?? '').trim();
-        return {
-          provider,
-          model,
-          apiKey: options.providerProfiles?.get(provider)?.apiKey || apiKey || null,
-          baseUrl: options.providerProfiles?.get(provider)?.baseUrl,
-          apiProtocol: options.providerProfiles?.get(provider)?.protocol,
-          reasoningEffort: reasoningEffort ?? undefined,
-          provenOsSandbox: true
-        };
-      }
+      resolveAssignment: resolveRoleAssignment
     });
 
   const cycleRunner =
@@ -820,6 +838,43 @@ export function createReplacementRuntime(
       roleRunner,
       jevClient
     });
+
+  const indodaxCycleRunner = options.cycleRunner ?? new CycleRunner({ roleRunner: indodaxRoleRunner, jevClient });
+
+  const indodaxClient = options.indodaxClient ?? new IndodaxPublicClient();
+
+  /** What an agent chat sees of the desk: Indodax spot only, plus fresh market data for the pair in question. */
+  const buildIndodaxChatContext = async (symbolHint?: string) => {
+    const snap = snapshot();
+    const symbol = (symbolHint ?? snap.debate?.symbol)?.toUpperCase();
+    let market: Record<string, unknown> | null = null;
+    if (symbol) {
+      try {
+        const summary = indodaxPromptSummary(await buildIndodaxContext(indodaxClient, symbol, '4h'));
+        market = { ...summary, candles: summary.candles.slice(-12) };
+      } catch (error) {
+        market = { unavailable: `Indodax data for ${symbol} is unavailable: ${error instanceof IndodaxDataError ? error.message : 'request failed'}` };
+      }
+    }
+    const trading = options.settings?.current().effective.trading;
+    const verdictView = (v: Verdict) => ({ symbol: v.symbol, action: v.action, reason: v.reason, at: v.at });
+    return {
+      venue: 'Indodax spot',
+      note: 'Indodax spot is the only venue. Prices are in the pair quote currency (IDR or USDT), which are never converted.',
+      mode: snap.mode,
+      killSwitch: snap.killed ? 'ON' : 'OFF',
+      activePair: symbol ?? null,
+      market,
+      profile: {
+        defaultStopPct: trading?.defaultStopPct ?? null,
+        takeProfitPct: trading?.takeProfitPct ?? null,
+        dailyLossLimitPct: snap.trading?.values?.dailyLossLimitPct ?? null,
+        minEntryConfidencePct: trading?.minEntryConfidencePct ?? null
+      },
+      lastVerdict: snap.lastVerdict ? verdictView(snap.lastVerdict) : null,
+      recentVerdicts: (snap.verdicts ?? []).slice(0, 5).map(verdictView)
+    };
+  };
 
   let lastFightAt = 0;
   let autoTimer: NodeJS.Timeout | null = null;
@@ -958,6 +1013,194 @@ export function createReplacementRuntime(
     hub.emit('state', snapshot());
     return snapshot();
   };
+
+  const debateCallbacks = (targetSymbol: string, spokenRolesInCurrentCycle: Set<RoleId>) => ({
+        onRoleStart: (task: RoleTask) => {
+          const assignment = options.settings?.current().effective.agents[task.role as RoleId];
+          updateState((draft) => {
+            const agentView = draft.agents[task.role as RoleId];
+            if (agentView) {
+              agentView.status =
+                task.phase === 'observe' ? 'reading' : task.phase === 'challenge' ? 'arguing' : 'thinking';
+              if (assignment) {
+                agentView.provider = assignment.provider;
+                agentView.model = assignment.model;
+                agentView.configuredProvider = assignment.provider;
+                agentView.configuredModel = assignment.model;
+                agentView.invokedProvider = assignment.provider;
+                agentView.invokedModel = assignment.model;
+              }
+              agentView.lastAttemptAt = Date.now();
+              agentView.executionStatus = task.phase === 'observe' ? 'OBSERVING' : 'THINKING';
+            }
+            if (draft.debate) {
+              draft.debate.phase =
+                task.phase === 'challenge'
+                  ? 'round 1'
+                  : task.phase === 'observe'
+                  ? 'gathering'
+                  : task.role === 'risk'
+                  ? 'risk gate'
+                  : task.role === 'execution'
+                  ? 'execution review'
+                  : task.role === 'lead'
+                  ? 'verdict'
+                  : task.phase;
+              if (task.phase === 'challenge') {
+                draft.debate.round = 1;
+              }
+            }
+          });
+          hub.emit('status', { agent: task.role, status: snapshot().agents[task.role as RoleId]?.status ?? 'thinking' });
+          hub.emit('state', snapshot());
+        },
+        onRoleResult: (res: RoleResult) => {
+          spokenRolesInCurrentCycle.add(res.role);
+          const at = Date.now();
+          const reasoning =
+            res.reasoning ?? (res.errorReason ? `Failure: ${res.errorReason}` : `Completed with stance ${res.stance ?? 'HOLD'}`);
+          const roomMsg = {
+            id: `room-${at}-${res.role}`,
+            conversationId: 'office',
+            at,
+            from: res.role,
+            to: 'owner' as const,
+            text: reasoning,
+            symbol: targetSymbol
+          };
+
+          const fightHolder: {
+            current?: {
+              from: RoleId;
+              to: RoleId;
+              intensity: number;
+              punches: number;
+              at: number;
+            };
+          } = {};
+
+          updateState((draft) => {
+            draft.agents[res.role].status = 'idle';
+            if (res.provider) {
+              draft.agents[res.role].provider = res.provider;
+              draft.agents[res.role].invokedProvider = res.provider;
+            }
+            if (res.model) {
+              draft.agents[res.role].model = res.model;
+              draft.agents[res.role].invokedModel = res.model;
+            }
+            if (res.status === 'completed') {
+              draft.agents[res.role].lastSuccessAt = at;
+              draft.agents[res.role].executionStatus = 'IDLE';
+            } else {
+              draft.agents[res.role].lastError = res.errorReason ?? res.status;
+              draft.agents[res.role].executionStatus = 'ERROR';
+            }
+            if (res.stance) draft.agents[res.role].stance = res.stance as Stance;
+            if (res.confidence?.value !== null && res.confidence?.value !== undefined) {
+              draft.agents[res.role].confidence =
+                res.confidence.scale === 'probability_0_1'
+                  ? Math.round(res.confidence.value * 100)
+                  : Math.round(res.confidence.value);
+            }
+            draft.agents[res.role].lastLine = reasoning.slice(0, 160);
+
+            if (!draft.roomHistory) draft.roomHistory = [];
+            draft.roomHistory.push(roomMsg);
+            draft.roomHistory = draft.roomHistory.slice(-100);
+
+            if (!draft.logs) draft.logs = [];
+            draft.logs.push({
+              id: `log-${at}-${res.role}`,
+              conversationId: 'office',
+              at,
+              kind: 'speech',
+              agent: res.role,
+              text: `[${res.role.toUpperCase()}] ${res.stance ?? 'HOLD'} (${res.confidence?.value ?? '-'}): ${reasoning}`
+            });
+            draft.logs = draft.logs.slice(-500);
+
+            const spokenAgents = Object.values(draft.agents).filter((a) => spokenRolesInCurrentCycle.has(a.id as RoleId));
+            const bull = spokenAgents.filter((a) => (a.stance as string) === 'LONG').map((a) => a.id);
+            const bear = spokenAgents.filter((a) => (a.stance as string) === 'SHORT').map((a) => a.id);
+            const closers = spokenAgents.filter((a) => (a.stance as string) === 'CLOSE').map((a) => a.id);
+            const neutral = spokenAgents.filter((a) => (a.stance as string) !== 'LONG' && (a.stance as string) !== 'SHORT' && (a.stance as string) !== 'CLOSE').map((a) => a.id);
+            const activeDirectional = bull.length + bear.length;
+            let disagreement = 0;
+            let fightFrom: RoleId | null = null;
+            let fightTo: RoleId | null = null;
+
+            if (bull.length > 0 && bear.length > 0) {
+              disagreement = Math.min(1, (Math.min(bull.length, bear.length) * 2) / Math.max(2, activeDirectional));
+              fightFrom = bull[Math.floor(Math.random() * bull.length)]!;
+              fightTo = bear[Math.floor(Math.random() * bear.length)]!;
+            } else if (closers.length > 0 && activeDirectional > 0) {
+              const directionalCamp = bull.length >= bear.length ? bull : bear;
+              disagreement = Math.min(1, (Math.min(closers.length, directionalCamp.length) * 2) / Math.max(2, closers.length + directionalCamp.length));
+              fightFrom = directionalCamp[Math.floor(Math.random() * directionalCamp.length)]!;
+              fightTo = closers[Math.floor(Math.random() * closers.length)]!;
+            }
+
+            if (draft.debate) {
+              draft.debate.camps = { bull, bear, neutral: [...closers, ...neutral] };
+              draft.debate.disagreement = disagreement;
+            }
+
+            if (disagreement >= (draft.fightThreshold ?? 0.35) && fightFrom && fightTo) {
+              const punches = 1 + Math.round(disagreement * 3);
+              draft.agents[fightFrom].status = 'fighting';
+              draft.agents[fightTo].status = 'fighting';
+              fightHolder.current = {
+                from: fightFrom,
+                to: fightTo,
+                intensity: Math.min(1, disagreement),
+                punches,
+                at
+              };
+              draft.logs.push({
+                id: `fight-${at}-${fightFrom}`,
+                conversationId: 'office',
+                at,
+                kind: 'fight',
+                agent: fightFrom,
+                text: `${fightFrom.toUpperCase()} clashes with ${fightTo.toUpperCase()} over ${targetSymbol} (heat ${Math.round(disagreement * 100)}%)`
+              });
+            }
+          });
+
+          if (fightHolder.current) {
+            hub.emit('fight', fightHolder.current);
+            lastFightAt = fightHolder.current.at;
+          }
+
+          if (options.chatService) {
+            void options.chatService.recordMessage({
+              messageId: roomMsg.id,
+              conversationId: 'office',
+              role: res.role,
+              text: reasoning
+            }).catch(() => {});
+          }
+
+          hub.emit('speech', {
+            id: `speech-${at}-${res.role}`,
+            agent: res.role,
+            text: reasoning,
+            done: true,
+            example: false,
+            at
+          });
+          hub.emit('room', roomMsg);
+          hub.emit('log', {
+            at,
+            kind: 'debate',
+            agent: res.role,
+            text: `[${res.role.toUpperCase()}] ${res.stance ?? 'HOLD'} (${res.confidence?.value ?? '-'}): ${reasoning}`
+          });
+          hub.emit('meter', { disagreement: snapshot().debate?.disagreement ?? 0 });
+          hub.emit('state', snapshot());
+        }
+  });
 
   const executeSingleSymbolCycle = async (
     targetSymbol: string,
@@ -1735,191 +1978,7 @@ export function createReplacementRuntime(
         policy,
         marketSummary,
         deadlineMs: 360_000,
-        onRoleStart: (task) => {
-          const assignment = options.settings?.current().effective.agents[task.role as RoleId];
-          updateState((draft) => {
-            const agentView = draft.agents[task.role as RoleId];
-            if (agentView) {
-              agentView.status =
-                task.phase === 'observe' ? 'reading' : task.phase === 'challenge' ? 'arguing' : 'thinking';
-              if (assignment) {
-                agentView.provider = assignment.provider;
-                agentView.model = assignment.model;
-                agentView.configuredProvider = assignment.provider;
-                agentView.configuredModel = assignment.model;
-                agentView.invokedProvider = assignment.provider;
-                agentView.invokedModel = assignment.model;
-              }
-              agentView.lastAttemptAt = Date.now();
-              agentView.executionStatus = task.phase === 'observe' ? 'OBSERVING' : 'THINKING';
-            }
-            if (draft.debate) {
-              draft.debate.phase =
-                task.phase === 'challenge'
-                  ? 'round 1'
-                  : task.phase === 'observe'
-                  ? 'gathering'
-                  : task.role === 'risk'
-                  ? 'risk gate'
-                  : task.role === 'execution'
-                  ? 'execution review'
-                  : task.role === 'lead'
-                  ? 'verdict'
-                  : task.phase;
-              if (task.phase === 'challenge') {
-                draft.debate.round = 1;
-              }
-            }
-          });
-          hub.emit('status', { agent: task.role, status: snapshot().agents[task.role as RoleId]?.status ?? 'thinking' });
-          hub.emit('state', snapshot());
-        },
-        onRoleResult: (res) => {
-          spokenRolesInCurrentCycle.add(res.role);
-          const at = Date.now();
-          const reasoning =
-            res.reasoning ?? (res.errorReason ? `Failure: ${res.errorReason}` : `Completed with stance ${res.stance ?? 'HOLD'}`);
-          const roomMsg = {
-            id: `room-${at}-${res.role}`,
-            conversationId: 'office',
-            at,
-            from: res.role,
-            to: 'owner' as const,
-            text: reasoning,
-            symbol: targetSymbol
-          };
-
-          const fightHolder: {
-            current?: {
-              from: RoleId;
-              to: RoleId;
-              intensity: number;
-              punches: number;
-              at: number;
-            };
-          } = {};
-
-          updateState((draft) => {
-            draft.agents[res.role].status = 'idle';
-            if (res.provider) {
-              draft.agents[res.role].provider = res.provider;
-              draft.agents[res.role].invokedProvider = res.provider;
-            }
-            if (res.model) {
-              draft.agents[res.role].model = res.model;
-              draft.agents[res.role].invokedModel = res.model;
-            }
-            if (res.status === 'completed') {
-              draft.agents[res.role].lastSuccessAt = at;
-              draft.agents[res.role].executionStatus = 'IDLE';
-            } else {
-              draft.agents[res.role].lastError = res.errorReason ?? res.status;
-              draft.agents[res.role].executionStatus = 'ERROR';
-            }
-            if (res.stance) draft.agents[res.role].stance = res.stance as Stance;
-            if (res.confidence?.value !== null && res.confidence?.value !== undefined) {
-              draft.agents[res.role].confidence =
-                res.confidence.scale === 'probability_0_1'
-                  ? Math.round(res.confidence.value * 100)
-                  : Math.round(res.confidence.value);
-            }
-            draft.agents[res.role].lastLine = reasoning.slice(0, 160);
-
-            if (!draft.roomHistory) draft.roomHistory = [];
-            draft.roomHistory.push(roomMsg);
-            draft.roomHistory = draft.roomHistory.slice(-100);
-
-            if (!draft.logs) draft.logs = [];
-            draft.logs.push({
-              id: `log-${at}-${res.role}`,
-              conversationId: 'office',
-              at,
-              kind: 'speech',
-              agent: res.role,
-              text: `[${res.role.toUpperCase()}] ${res.stance ?? 'HOLD'} (${res.confidence?.value ?? '-'}): ${reasoning}`
-            });
-            draft.logs = draft.logs.slice(-500);
-
-            const spokenAgents = Object.values(draft.agents).filter((a) => spokenRolesInCurrentCycle.has(a.id as RoleId));
-            const bull = spokenAgents.filter((a) => (a.stance as string) === 'LONG').map((a) => a.id);
-            const bear = spokenAgents.filter((a) => (a.stance as string) === 'SHORT').map((a) => a.id);
-            const closers = spokenAgents.filter((a) => (a.stance as string) === 'CLOSE').map((a) => a.id);
-            const neutral = spokenAgents.filter((a) => (a.stance as string) !== 'LONG' && (a.stance as string) !== 'SHORT' && (a.stance as string) !== 'CLOSE').map((a) => a.id);
-            const activeDirectional = bull.length + bear.length;
-            let disagreement = 0;
-            let fightFrom: RoleId | null = null;
-            let fightTo: RoleId | null = null;
-
-            if (bull.length > 0 && bear.length > 0) {
-              disagreement = Math.min(1, (Math.min(bull.length, bear.length) * 2) / Math.max(2, activeDirectional));
-              fightFrom = bull[Math.floor(Math.random() * bull.length)]!;
-              fightTo = bear[Math.floor(Math.random() * bear.length)]!;
-            } else if (closers.length > 0 && activeDirectional > 0) {
-              const directionalCamp = bull.length >= bear.length ? bull : bear;
-              disagreement = Math.min(1, (Math.min(closers.length, directionalCamp.length) * 2) / Math.max(2, closers.length + directionalCamp.length));
-              fightFrom = directionalCamp[Math.floor(Math.random() * directionalCamp.length)]!;
-              fightTo = closers[Math.floor(Math.random() * closers.length)]!;
-            }
-
-            if (draft.debate) {
-              draft.debate.camps = { bull, bear, neutral: [...closers, ...neutral] };
-              draft.debate.disagreement = disagreement;
-            }
-
-            if (disagreement >= (draft.fightThreshold ?? 0.35) && fightFrom && fightTo) {
-              const punches = 1 + Math.round(disagreement * 3);
-              draft.agents[fightFrom].status = 'fighting';
-              draft.agents[fightTo].status = 'fighting';
-              fightHolder.current = {
-                from: fightFrom,
-                to: fightTo,
-                intensity: Math.min(1, disagreement),
-                punches,
-                at
-              };
-              draft.logs.push({
-                id: `fight-${at}-${fightFrom}`,
-                conversationId: 'office',
-                at,
-                kind: 'fight',
-                agent: fightFrom,
-                text: `${fightFrom.toUpperCase()} clashes with ${fightTo.toUpperCase()} over ${targetSymbol} (heat ${Math.round(disagreement * 100)}%)`
-              });
-            }
-          });
-
-          if (fightHolder.current) {
-            hub.emit('fight', fightHolder.current);
-            lastFightAt = fightHolder.current.at;
-          }
-
-          if (options.chatService) {
-            void options.chatService.recordMessage({
-              messageId: roomMsg.id,
-              conversationId: 'office',
-              role: res.role,
-              text: reasoning
-            }).catch(() => {});
-          }
-
-          hub.emit('speech', {
-            id: `speech-${at}-${res.role}`,
-            agent: res.role,
-            text: reasoning,
-            done: true,
-            example: false,
-            at
-          });
-          hub.emit('room', roomMsg);
-          hub.emit('log', {
-            at,
-            kind: 'debate',
-            agent: res.role,
-            text: `[${res.role.toUpperCase()}] ${res.stance ?? 'HOLD'} (${res.confidence?.value ?? '-'}): ${reasoning}`
-          });
-          hub.emit('meter', { disagreement: snapshot().debate?.disagreement ?? 0 });
-          hub.emit('state', snapshot());
-        }
+        ...debateCallbacks(targetSymbol, spokenRolesInCurrentCycle)
       });
 
       const currentSnap = snapshot();
@@ -2785,15 +2844,7 @@ export function createReplacementRuntime(
           await options.syncVenueAccount();
         } catch {}
       }
-      const deskSnapshot = buildLiveDeskChatContext(snapshot(), {
-        marketHub,
-        newsBySymbol: Object.fromEntries(newsBriefingsBySymbol),
-        extraFeeds: {
-          newsBriefing: (input.symbol ? newsBriefingsBySymbol.get(input.symbol.toUpperCase()) : undefined)
-            ?? Array.from(newsBriefingsBySymbol.values())[0]
-            ?? undefined
-        }
-      });
+      const deskSnapshot = await buildIndodaxChatContext(input.symbol);
       const deskContext = `Live desk snapshot (informational only; not an execution command).\n${JSON.stringify(deskSnapshot, null, 2)}`;
       const ownerAt = Date.now();
       const ownerMessageId = randomUUID();
@@ -2833,7 +2884,7 @@ export function createReplacementRuntime(
       }
 
       const outcomes = await Promise.allSettled(roles.map(async role => {
-        const answer = await roleRunner.chat({
+        const answer = await indodaxRoleRunner.chat({
           cycleId: `chat-${randomUUID()}`,
           role,
           prompt,
@@ -2903,7 +2954,14 @@ export function createReplacementRuntime(
       if (snap.auto.running) {
         return { ok: false, error: `A debate is already in progress for ${snap.debate?.symbol ?? 'symbol'}` };
       }
-      void triggerCycle(sym, 'owner').catch(console.error);
+      try {
+        await resolveIndodaxSymbol(indodaxClient, sym);
+      } catch (error) {
+        return { ok: false, error: error instanceof IndodaxDataError ? error.message : 'Indodax data is unavailable.' };
+      }
+      void runIndodaxDebate(sym, 'owner')
+        .then((res) => { if (!res.ok) hub.emit('log', { at: Date.now(), kind: 'system', text: `Debate for ${sym} did not run: ${res.message}` }); })
+        .catch(console.error);
       return { ok: true, command: 'analyze', reply: `Starting debate for ${sym}...` };
     }
 
@@ -4162,11 +4220,177 @@ export function createReplacementRuntime(
   fastReflexTimer.unref();
 
   let indodaxPaperCycleActive = false;
+
+  const indodaxPolicy = (current: number, hasPosition: boolean): CyclePolicy => {
+    const trading = options.settings?.current().effective.trading;
+    const stopPct = trading?.defaultStopPct ?? 5;
+    const tpPct = trading?.takeProfitPct ?? stopPct * (trading?.takeProfitR ?? 2);
+    return {
+      minEntryConfidencePct: trading?.minEntryConfidencePct ?? 65,
+      requireTwoOfThreeAnalysts: true,
+      maxLeverage: 1,
+      defaultStopPct: stopPct,
+      takeProfitPct: tpPct,
+      takeProfitR: trading?.takeProfitR ?? 2,
+      maxPositions: 1,
+      supportsLimitGtc: false,
+      hasPosition,
+      positionSide: hasPosition ? 'LONG' : undefined,
+      profileBaselineStopPrice: { long: (current * (1 - stopPct / 100)).toFixed(8), short: null },
+      profileBaselineTpPrice: { long: (current * (1 + tpPct / 100)).toFixed(8), short: null }
+    };
+  };
+
+  /** The one place an Indodax agent cycle runs: Office debate, `analyze` and the PAPER session all end up here. */
+  const runIndodaxCycle = async (input: {
+    symbol: string;
+    accountRef: string;
+    marketSummary: Record<string, unknown>;
+    hasPosition: boolean;
+    signal: AbortSignal;
+    reason: CycleReason;
+    callbacks?: Pick<ReturnType<typeof debateCallbacks>, 'onRoleStart' | 'onRoleResult'>;
+  }) => {
+    const snap = snapshot();
+    if (input.signal.aborted || snap.killed || snap.mode !== 'PAPER' || snap.auto.running || indodaxPaperCycleActive) return null;
+    const current = Number(input.marketSummary.ask ?? input.marketSummary.last ?? 0);
+    if (!Number.isFinite(current) || current <= 0) return { out: null, failures: undefined };
+    const assignments = options.settings?.current().effective.agents;
+    indodaxPaperCycleActive = true;
+    updateState((draft) => { draft.auto.running = true; });
+    try {
+      const out = await indodaxCycleRunner.run({
+        reason: input.reason,
+        accountRef: input.accountRef,
+        symbol: input.symbol,
+        evidenceId: randomUUID(),
+        configVersion: options.settings?.current().activeVersion ?? 1,
+        policy: indodaxPolicy(current, input.hasPosition),
+        marketSummary: input.marketSummary,
+        signal: input.signal,
+        routeForRole: (role) => assignments?.[role]?.route ?? 'LOCAL',
+        ...input.callbacks
+      });
+      const failures = (out.roleResults ?? [])
+        .filter((r) => r.status !== 'completed')
+        .map((r) => `${r.role}: ${r.errorReason ?? r.status}`)
+        .join('; ');
+      return { out, failures: failures || undefined };
+    } finally {
+      indodaxPaperCycleActive = false;
+      updateState((draft) => {
+        draft.auto.running = false;
+        draft.auto.lastCycleAt = Date.now();
+      });
+    }
+  };
+
+  const runIndodaxDebate = async (
+    symbolInput: string,
+    reason: CycleReason = 'owner',
+    timeframe: IndodaxTimeframe = '4h'
+  ): Promise<{ ok: boolean; message: string; cycleId?: string; verdict?: Verdict }> => {
+    const snap = snapshot();
+    if (snap.killed) return { ok: false, message: 'Kill switch is ON. Trading is halted.' };
+    if (snap.mode !== 'PAPER') return { ok: false, message: 'Indodax debates run in PAPER mode.' };
+    if (snap.auto.running || indodaxPaperCycleActive) return { ok: false, message: `A cycle is already running for ${snap.debate?.symbol ?? 'a pair'}` };
+    let context: IndodaxContext;
+    try {
+      const pair = await resolveIndodaxSymbol(indodaxClient, symbolInput);
+      context = await buildIndodaxContext(indodaxClient, pair.symbol, timeframe);
+    } catch (error) {
+      return { ok: false, message: error instanceof IndodaxDataError ? error.message : 'Indodax data is unavailable.' };
+    }
+    const symbol = context.symbol;
+    const cycleId = `cycle-${Date.now()}-${randomUUID().slice(0, 8)}`;
+    const spoken = new Set<RoleId>();
+    updateState((draft) => {
+      draft.debate = {
+        id: `debate-${Date.now()}`,
+        symbol,
+        phase: 'opening',
+        mode: draft.debateMode ?? 'normal',
+        round: 1,
+        disagreement: 0,
+        weighted: 0,
+        camps: { bull: [], bear: [], neutral: [] }
+      };
+      for (const role of ROLE_IDS) {
+        draft.agents[role].status = 'reading';
+        draft.agents[role].stance = 'NEUTRAL';
+        draft.agents[role].confidence = null;
+        draft.agents[role].lastLine = '';
+      }
+    });
+    hub.emit('debate', snapshot().debate);
+    hub.emit('log', { at: Date.now(), kind: 'debate', text: `Started Indodax deliberation for ${symbol} (${timeframe}, reason: ${reason})` });
+
+    try {
+      const res = await runIndodaxCycle({
+        symbol,
+        accountRef: 'indodax-paper-local',
+        marketSummary: { ...indodaxPromptSummary(context), mode: 'PAPER' },
+        hasPosition: false,
+        signal: new AbortController().signal,
+        reason,
+        callbacks: debateCallbacks(symbol, spoken)
+      });
+      if (!res?.out) return { ok: false, message: 'The debate could not start. Check the kill switch and any running cycle.', cycleId };
+      const verdict = toIndodaxVerdict(res.out, symbol);
+      const agents = Object.values(snapshot().agents);
+      const bull = agents.filter((a) => (a.stance as string) === 'LONG').map((a) => a.id);
+      const bear = agents.filter((a) => (a.stance as string) === 'CLOSE').map((a) => a.id);
+      const neutral = agents.filter((a) => (a.stance as string) !== 'LONG' && (a.stance as string) !== 'CLOSE').map((a) => a.id);
+      const disagreement = bull.length > 0 && bear.length > 0 ? Math.min(1, (Math.min(bull.length, bear.length) * 2) / Math.max(2, bull.length + bear.length)) : 0;
+      const incomplete = res.out.status !== 'completed';
+      const record: Verdict = {
+        id: `verdict-${Date.now()}`,
+        symbol,
+        action: verdict.action,
+        riskDecision: incomplete ? 'INCOMPLETE' : verdict.action === 'HOLD' ? 'HOLD' : 'APPROVE',
+        executed: false,
+        reason: incomplete
+          ? (res.failures ? `Deliberation incomplete (${res.failures})` : 'Deliberation incomplete. No order placed.')
+          : verdict.rejectionReason ?? (verdict.action === 'OPEN_LONG'
+            ? `Advice only: buy with stop ${verdict.thesis?.stop}${verdict.thesis?.tp ? `, take profit ${verdict.thesis.tp}` : ''}. Start a PAPER session to simulate it.`
+            : verdict.action === 'CLOSE' ? 'Advice only: sell the holding' : 'Consensus synthesis reached HOLD'),
+        disagreement,
+        camps: { bull, bear, neutral },
+        example: false,
+        at: Date.now()
+      };
+      updateState((draft) => {
+        draft.verdicts = [record, ...draft.verdicts.slice(0, 49)];
+        draft.lastVerdict = record;
+        if (!draft.logs) draft.logs = [];
+        draft.logs.push({ id: `log-${Date.now()}-verdict`, conversationId: 'office', at: Date.now(), kind: 'verdict', text: `[VERDICT] ${record.action} on ${symbol}: (${record.reason})` });
+        draft.logs = draft.logs.slice(-500);
+        draft.lastCycle = {
+          symbol,
+          durationMs: Date.now() - Number(cycleId.split('-')[1] || Date.now()),
+          stage: res.out!.status,
+          verdict: record.action,
+          noTradeReason: record.reason,
+          executionStatus: null,
+          reasonCode: record.riskDecision,
+          outcome: record.action
+        };
+      });
+      hub.emit('verdict', record);
+      hub.emit('state', snapshot());
+      return { ok: true, message: `Cycle ${cycleId} finished with verdict ${record.action}`, cycleId, verdict: record };
+    } catch (error) {
+      return { ok: false, message: `Cycle failed: ${(error as Error).message}`, cycleId };
+    }
+  };
+
   return {
     hub,
     marketHub,
     roleRunner,
     cycleRunner,
+    indodaxClient,
+    runIndodaxDebate,
     snapshot,
     updateState,
     triggerCycle,
@@ -4177,61 +4401,10 @@ export function createReplacementRuntime(
       hasPosition: boolean;
       signal: AbortSignal;
     }) => {
-      const snap = snapshot();
-      if (input.signal.aborted || snap.killed || snap.mode !== 'PAPER' || snap.auto.running || indodaxPaperCycleActive) {
-        return {
-          status: 'cancelled' as const,
-          verdict: null
-        };
-      }
-      const current = Number(input.marketSummary.ask ?? input.marketSummary.last ?? 0);
-      if (!Number.isFinite(current) || current <= 0) {
-        return { status: 'incomplete' as const, verdict: null };
-      }
-      const trading = options.settings?.current().effective.trading;
-      const stopPct = trading?.defaultStopPct ?? 5;
-      const tpPct = trading?.takeProfitPct ?? stopPct * (trading?.takeProfitR ?? 2);
-      const policy: CyclePolicy = {
-        minEntryConfidencePct: trading?.minEntryConfidencePct ?? 65,
-        requireTwoOfThreeAnalysts: true,
-        maxLeverage: 1,
-        defaultStopPct: stopPct,
-        takeProfitPct: tpPct,
-        takeProfitR: trading?.takeProfitR ?? 2,
-        maxPositions: 1,
-        supportsLimitGtc: false,
-        hasPosition: input.hasPosition,
-        positionSide: input.hasPosition ? 'LONG' : undefined,
-        profileBaselineStopPrice: { long: (current * (1 - stopPct / 100)).toFixed(8), short: null },
-        profileBaselineTpPrice: { long: (current * (1 + tpPct / 100)).toFixed(8), short: null }
-      };
-      const assignments = options.settings?.current().effective.agents;
-      indodaxPaperCycleActive = true;
-      updateState((draft) => { draft.auto.running = true; });
-      try {
-        const out = await cycleRunner.run({
-          reason: 'schedule',
-          accountRef: input.accountRef,
-          symbol: input.symbol,
-          evidenceId: randomUUID(),
-          configVersion: options.settings?.current().activeVersion ?? 1,
-          policy,
-          marketSummary: input.marketSummary,
-          signal: input.signal,
-          routeForRole: (role) => assignments?.[role]?.route ?? 'LOCAL'
-        });
-        const failures = (out.roleResults ?? [])
-          .filter((r) => r.status !== 'completed')
-          .map((r) => `${r.role}: ${r.errorReason ?? r.status}`)
-          .join('; ');
-        return { status: out.status, verdict: out.verdict, failures: failures || undefined };
-      } finally {
-        indodaxPaperCycleActive = false;
-        updateState((draft) => {
-          draft.auto.running = false;
-          draft.auto.lastCycleAt = Date.now();
-        });
-      }
+      const res = await runIndodaxCycle({ ...input, reason: 'schedule' });
+      if (!res) return { status: 'cancelled' as const, verdict: null };
+      if (!res.out) return { status: 'incomplete' as const, verdict: null };
+      return { status: res.out.status, verdict: toIndodaxVerdict(res.out, input.symbol), failures: res.failures };
     },
     updateAutoSettings,
     handleCommand,
@@ -4814,8 +4987,12 @@ export async function startReplacementServer(
     }
 
     if (input.kind === 'debate' || input.kind === 'auto_cycle') {
-      const sym = input.symbol ?? (input.kind === 'auto_cycle' ? undefined : 'BTCUSDT');
-      const res = await (runtimeRef?.triggerCycle(sym, input.actor === 'system' ? 'schedule' : 'owner') ?? Promise.resolve({ ok: false, message: 'Runtime unavailable' }));
+      const sym = input.symbol;
+      const reason = input.actor === 'system' ? 'schedule' : 'owner';
+      if (input.kind === 'debate' && !sym) {
+        return { ok: false, code: 'REJECTED', message: 'Choose an Indodax pair, for example BTCIDR.' };
+      }
+      const res = await (sym ? runtimeRef?.runIndodaxDebate(sym, reason) : runtimeRef?.triggerCycle(undefined, reason)) ?? { ok: false, message: 'Runtime unavailable' };
       return {
         ok: res.ok,
         code: res.ok ? 'OK' : 'REJECTED',

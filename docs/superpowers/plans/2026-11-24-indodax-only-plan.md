@@ -124,8 +124,19 @@ Penyimpangan di fase 1:
 1. Tugas 1.4: teks kendala yang dikirim sesi PAPER berubah. Teks lama menyebut SHORT, leverage, dan limit order sebagai hal yang tidak tersedia, sedangkan 1.5 melarang kata-kata itu muncul di teks kendala. Teks baru hanya menyebut tindakan yang mungkin (LONG, HOLD, CLOSE) dengan order market. Penolakan SHORT dan limit order di sisi kode PAPER tidak berubah dan tetap dites. Prompt peran enam agen belum diubah sampai tugas 2.1.
 2. Tugas 1.3: `buildIndodaxContext` memakai `client.market()`, yang sudah menolak pasangan tidak terdaftar, maintenance, dan suspended. `resolveIndodaxSymbol` (memakai `client.pairs()`) berdiri sendiri untuk validasi di Office, CLI, dan chat pada tugas 2.4. Alasannya: tes PAPER yang ada mengganti `market()` pada klien palsu, jadi memanggil `pairs()` di dalam pembangun konteks akan menyentuh jaringan.
 
-`IndodaxVerdictSchema` (1.2) belum dipasang ke siklus. Pemasangannya ada di tugas 2.2.
-| 2 | | | |
+`IndodaxVerdictSchema` (1.2) dipasang di batas keluar siklus pada fase 2, lihat penyimpangan 2 di bawah.
+
+Penyimpangan di fase 2:
+
+1. Tugas 2.1: enam `role.md`, `risk/soul.md`, `execution/agent.md`, paragraf wajib di `roles.ts`, dan skema balasan di `runner.ts` ditulis ulang. Judul peran Market dan Research berubah ("Tape, Momentum & Volume Reader", "News, Macro & Catalyst Investigator") di `roles.ts` dan `office.ts`. Tool ResearchHost tidak lagi disebut di prompt, dan siklus serta chat Indodax memakai `RoleRunner` tanpa ResearchHost (`indodaxRoleRunner`), karena tool itu membaca data venue lain. `mock.ts` hanya diubah teksnya. Logika stance SHORT di `mock.ts`, `jev.ts`, `runner.ts` (parser yang menerima SHORT), `cycle.ts`, `exits.ts`, `revalidate.ts` masih ada dan dibersihkan di 3.7.
+2. Tugas 2.2: skema verdict spot dipasang di batas keluar (`toIndodaxVerdict` di `server/v2/decision/indodax-verdict.ts`), bukan dengan menulis ulang isi `cycle.ts`, `exits.ts`, `revalidate.ts`. Siklus masih bernalar dengan tiket dua sisi di dalam. `OPEN_SHORT` dan order `LIMIT_GTC` keluar sebagai HOLD dengan alasan. Yang dilihat model dibatasi lewat `promptPolicy`, `promptTicket`, dan `toPeerDigest` (tanpa leverage, sisi kedua, limit order, jumlah slot).
+3. Tugas 2.3: satu `runIndodaxCycle` di runtime dipakai sesi PAPER dan debat. Pembangunan konteks tetap di pemanggil lewat `buildIndodaxContext` dan `indodaxPromptSummary` (fungsi yang sama), dan tes membuktikan ringkasan serta kebijakan debat sama dengan sesi PAPER.
+4. Tugas 2.4: perintah `analyze` dan `dispatch('debate')` memakai `runIndodaxDebate`. Debat tanpa pasangan ditolak. `triggerCycle(undefined)` (siklus terjadwal dan auto) serta `executeSingleSymbolCycle` masih jalur lama dan dihapus di 3.1 dan 3.2. Tombol Mulai debat di Office masih mengirim simbol dari watchlist lama sampai 4.2. Debat hanya berjalan di mode PAPER dan hanya menyimpan saran.
+5. Tugas 2.5: hanya `smc` yang masuk konteks (`advisory.structure`: tren, break terakhir, swing low dan high, zona). `harmonics`, `alpha-factors`, dan `monte-carlo` tidak dipakai Indodax dan dihapus di 3.6.
+6. Tugas 2.6: konteks chat agen (`buildIndodaxChatContext`) menggantikan `buildLiveDeskChatContext` untuk perintah ask dan chat. Yang diuji adalah isi konteksnya (venue, pasangan aktif, kuote, tanpa kata venue lain). Balasan model terhadap pertanyaan seperti leverage tidak bisa diuji otomatis, jadi dicek saat sesi nyata di 5.4.
+
+Empat tes lama diperbarui karena mengunci perilaku perpetual yang sengaja dihapus: `chat-execution-boundary`, `v2-integration-repair`, `v2-reconciliation-final`, `v2-runtime-repair`. `cycle-ops` memakai klien Indodax palsu (`tests/indodax-fixtures.ts`).
+| 2 | 2026-11-24 | Lulus. Build, typecheck, 224 berkas dan 1572 tes (11 baru, 4 diperbarui) | Prompt, kebijakan, verdict, siklus, dan konteks chat kini khusus Indodax spot. Enam penyimpangan, lihat di bawah |
 | 3 | | | |
 | 4 | | | |
 | 5 | | | |

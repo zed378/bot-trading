@@ -205,14 +205,11 @@ function tryParseJson(raw: string): unknown {
 }
 
 export function getRoleSchemaInstruction(role: RoleId): string {
-  const toolHint = `You may optionally call tools before your final answer by returning: {"toolCalls": [{"name": "<tool_name>", "args": {...}}]}`;
   if (role === 'risk') {
-    return `${toolHint}
-
-Respond strictly with a valid JSON object matching this schema:
+    return `Respond strictly with a valid JSON object matching this schema:
 {
   "decision": "APPROVE" | "REJECT",
-  "stance": "LONG" | "SHORT" | "HOLD" | "CLOSE" | "NEUTRAL",
+  "stance": "LONG" | "HOLD" | "CLOSE" | "NEUTRAL",
   "reasoning": "Clear explanation of risk verdict in character (max 3 sentences)",
   "confidence": { "value": 0.0 to 1.0, "scale": "probability_0_1" },
   "claimRefs": [],
@@ -221,27 +218,22 @@ Respond strictly with a valid JSON object matching this schema:
   }
 
   if (role === 'lead') {
-    return `${toolHint}
-
-Respond strictly with a valid JSON object matching this schema:
+    return `Respond strictly with a valid JSON object matching this schema:
 {
-  "stance": "LONG" | "SHORT" | "HOLD" | "CLOSE",
+  "stance": "LONG" | "HOLD" | "CLOSE",
   "reasoning": "Executive decision synthesis in character (max 3 sentences)",
   "confidence": { "value": 0.0 to 1.0, "scale": "probability_0_1" },
   "claimRefs": [],
   "contraryRefs": [],
-  "proposedStop": "optional SL price string",
+  "proposedStop": "SL price string, below the ask",
   "proposedTp": "optional TP price string",
-  "proposedOrderType": "MARKET" | "LIMIT_GTC",
-  "proposedLimitPrice": "optional limit price when LIMIT_GTC"
+  "proposedOrderType": "MARKET"
 }`;
   }
 
-  return `${toolHint}
-
-Respond strictly with a valid JSON object matching this schema:
+  return `Respond strictly with a valid JSON object matching this schema:
 {
-  "stance": "LONG" | "SHORT" | "HOLD" | "CLOSE" | "NEUTRAL",
+  "stance": "LONG" | "HOLD" | "CLOSE" | "NEUTRAL",
   "reasoning": "Analysis in character (max 3 sentences)",
   "confidence": { "value": 0.0 to 1.0, "scale": "probability_0_1" },
   "claimRefs": [],

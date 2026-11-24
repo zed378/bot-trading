@@ -376,7 +376,8 @@ describe('opposite-side candidate', () => {
     });
     expect(riskCalls).toBe(2);
     expect(seen[0]).toContain('"side": "LONG"');
-    expect(seen[1]).toContain('"side": "SHORT"');
+    expect(seen[1]).toContain('"side": null');
+    expect(seen[1]).not.toContain('"side": "LONG"');
     expect(seen[1]).toContain('MARKET');
     expect(seen[1]).toContain('70000');
     expect(out.verdict?.action).toBe('OPEN_SHORT');

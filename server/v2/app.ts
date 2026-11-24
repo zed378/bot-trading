@@ -97,8 +97,8 @@ export function createReplacementApp(
   });
 
   mountOperationsRoutes(app, runtime);
-  mountIndodaxRoutes(app);
-  app.locals.indodaxPaperAgent = mountIndodaxPaper(app, runtime);
+  mountIndodaxRoutes(app, runtime.indodaxClient);
+  app.locals.indodaxPaperAgent = mountIndodaxPaper(app, runtime, runtime.indodaxClient);
   app.locals.indodaxStopWorker = mountIndodaxStopRoutes(app, { isKilled: () => runtime.snapshot().killed });
   if (options.providerProfileDeps) mountProviderProfileRoutes(app, options.providerProfileDeps);
 
