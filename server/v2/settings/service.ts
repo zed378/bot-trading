@@ -378,7 +378,31 @@ export class SettingsService {
 
     if (existing.rows.length > 0) {
       const row = existing.rows[0]!;
-      const effective = OwnerSettingsSchema.parse(JSON.parse(String(row.payload_json)));
+      const raw = JSON.parse(String(row.payload_json)) as Record<string, any>;
+      if (raw.mode === 'TESTNET') raw.mode = 'PAPER';
+      if (raw.appMode && raw.appMode !== 'local') raw.appMode = 'local';
+      if (raw.networkProfiles && typeof raw.networkProfiles === 'object') {
+        delete raw.networkProfiles.testnet;
+      }
+      if (raw.venue && typeof raw.venue === 'object') {
+        delete raw.venue.allowExperimentalLive;
+        delete raw.venue.asterEntryOrderType;
+        if (raw.venue.exchange && raw.venue.exchange !== 'indodax') raw.venue.exchange = 'indodax';
+        if (raw.venue.network && raw.venue.network !== 'mainnet') raw.venue.network = null;
+      }
+      if (raw.channels && typeof raw.channels === 'object') {
+        delete raw.channels.discordEnabled;
+        delete raw.channels.slackEnabled;
+        delete raw.channels.whatsappEnabled;
+      }
+      if (raw.agents && typeof raw.agents === 'object') {
+        for (const role of ROLE_IDS) {
+          if (raw.agents[role] && typeof raw.agents[role] === 'object') {
+            raw.agents[role].route = 'LOCAL';
+          }
+        }
+      }
+      const effective = OwnerSettingsSchema.parse(raw);
       if (effective.trading && (effective.trading.orderSizePct === 1.5 || effective.trading.orderSizePct == null)) {
         delete (effective.trading as any).orderSizePct;
       }
