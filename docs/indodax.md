@@ -2,9 +2,9 @@
 
 ## Cakupan saat ini
 
-Integrasi ini menyediakan **analisis data pasar spot publik Indodax** lewat Office dan CLI, tanpa API key. Harga, bid/ask, metadata minimum order, dan candle memakai pasangan Indodax yang sebenarnya. Pasangan IDR dan USDT tidak dikonversi atau dicampur dengan saldo desk.
+Integrasi ini merupakan inti data pasar **spot publik Indodax** lewat Office dan CLI, tanpa API key. Harga, bid/ask, metadata minimum order, dan candle memakai pasangan Indodax yang sebenarnya. Pasangan IDR dan USDT tidak dikonversi atau dicampur.
 
-**Entry Indodax dari desk utama belum didukung.** Panel kini juga memiliki form kredensial terenkripsi dan pemantau SL untuk aset spot yang didaftarkan. Lihat [SL yang dijalankan bot](indodax-bot-stops.md) dan [Docker/PostgreSQL 18](docker-postgres.md). Memilih panel tidak mengubah venue, strategi, mode, watchlist, atau Auto Trading desk utama. Jangan memilih `EXCHANGE=indodax` atau `MARKET_SOURCE=indodax`: kedua pengaturan tersebut belum didukung oleh runtime entry utama.
+Panel **Indodax** menyediakan analisis pasar publik, sesi simulasi **PAPER agent**, form kredensial terenkripsi, dan pemantau SL untuk aset spot yang didaftarkan. Lihat [SL yang dijalankan bot](indodax-bot-stops.md), [Panduan Debat Indodax](indodax-debate.md), dan [Docker/PostgreSQL 18](docker-postgres.md). Entry LIVE oleh agen tidak tersedia; mode LIVE hanya berlaku untuk pemantau SL.
 
 ## Menggunakan Office
 
@@ -43,7 +43,7 @@ Implementasi menolak pasangan tidak terdaftar, status maintenance/suspended, res
 
 ## Batasan trading
 
-Owner menyetujui pengecualian khusus untuk SL Indodax yang disimpan di database dan dieksekusi bot. Perlindungan ini ditandai `BOT_MANAGED`, bukan exchange-verified. Jalur order entry utama dan kewajiban stop exchange untuk venue lain tetap berlaku. Detail kegagalan, konfirmasi LIVE, heartbeat, dan pemulihan order dijelaskan pada panduan SL.
+Owner menyetujui pengecualian khusus untuk SL Indodax yang disimpan di database dan dieksekusi bot. Perlindungan ini ditandai `BOT_MANAGED`, bukan exchange-verified. Detail kegagalan, konfirmasi LIVE, heartbeat, dan pemulihan order dijelaskan pada panduan SL.
 
 ## Parameter atlas KORO
 

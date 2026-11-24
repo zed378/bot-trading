@@ -137,7 +137,7 @@ Penyimpangan di fase 2:
 
 Empat tes lama diperbarui karena mengunci perilaku perpetual yang sengaja dihapus: `chat-execution-boundary`, `v2-integration-repair`, `v2-reconciliation-final`, `v2-runtime-repair`. `cycle-ops` memakai klien Indodax palsu (`tests/indodax-fixtures.ts`).
 | 2 | 2026-11-24 | Lulus. Build, typecheck, 224 berkas dan 1572 tes (11 baru, 4 diperbarui) | Prompt, kebijakan, verdict, siklus, dan konteks chat kini khusus Indodax spot. Enam penyimpangan, lihat di bawah |
-| 3 | | | |
-| 4 | | | |
-| 5 | | | |
-| 6 | | | |
+| 3 | 2026-11-24 | Lulus. Build, typecheck, 56 berkas dan 290 tes | Desk lama, adaptor venue lain, wallet/DEX, Grok Bot, Muse, kanal non-Telegram, dan data perpetual dihapus. `VenueId` menyempit ke `'indodax'`, mode ke `PAPER`/`LIVE`, migrasi skema PostgreSQL v4 menghapus `bridge_*` tanpa menyentuh `indodax_bot_stops` |
+| 4 | 2026-11-24 | Lulus. Build, typecheck, 57 berkas dan 294 tes | UI Setup, Ops, Channels (Telegram), Tour, i18n, Dockerfile, dan dependensi dipangkas untuk Indodax spot. Ketahanan penyedia 429/503 (`Retry-After` dan `providerCalls`) ditambahkan di `RoleRunner` dan diagnostik PAPER. Klik-tembus peramban interaktif penuh belum dijalankan langsung oleh agen |
+| 5 | 2026-11-24 | Lulus (tes otomatis); sesi PAPER nyata tertahan kuota penyedia | Semua 9 pengaman bagian 7 teruji di `indodax-safety`, `kill-file`, `untrusted`, `indodax-stops`, `postgres-integration`. Debat `analyze BTCIDR` pada stack Docker selesai sebagai `HOLD (INCOMPLETE)` karena penyedia `jerouter`/`openai` mengembalikan HTTP 503 `All providers busy` |
+| 6 | 2026-11-24 | Lulus. Build, typecheck, 57 berkas dan 294 tes | Dokumen venue lain dan riwayat usang dihapus, `README.md`, `docs/indodax*.md`, `CHANGELOG.md` diperbarui. `AGENTS.md` belum diubah dan menunggu persetujuan Owner |

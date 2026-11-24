@@ -2,6 +2,16 @@
 
 All notable changes to Trading Agent Mpu Gandring are documented in this file.
 
+## [Indodax-Only Rework] - 2026-11-24
+
+### Added & Improved
+- Narrowed the entire desk, contracts (`VenueId = 'indodax'`), settings, secrets, Office UI, CLI, and PostgreSQL schema to **Indodax spot only** (`OPEN_LONG`, `HOLD`, `CLOSE`; IDR and USDT quotes kept strictly separate).
+- Added unified `IndodaxContext`, `IndodaxVerdictSchema`, `resolveIndodaxSymbol`, and `buildIndodaxContext` with `indicators` and `smc` analysis so Office debates, `analyze <PAIR>`, and the PAPER agent share a single Indodax-only context builder.
+- Restricted chat notifications to **Telegram** only and removed multi-venue/perpetual adapters, wallet/DEX signing code, legacy desk files, Grok Bot/Muse bridges, and non-Indodax market feeds.
+- Added idempotent PostgreSQL schema migration (v4) dropping unused `bridge_*` tables while keeping `indodax_bot_stops` and vault credentials intact.
+- Added provider resilience in `RoleRunner` with bounded retries for HTTP 429/503 respecting `Retry-After` headers and per-cycle `providerCalls` diagnostics.
+- Preserved all safety guards: kill switch halt on cycles and SL monitors, PAPER daily loss cap, trade-only Indodax key validation, typed LIVE confirmation phrase, encrypted PostgreSQL vault, loopback/local-origin checks, untrusted text handling, and `BOT_MANAGED` SL execution via `ExecutionGateway.close`.
+
 ## [v0.0.0.4.28] - 2026-11-08
 
 ### Added & Improved
