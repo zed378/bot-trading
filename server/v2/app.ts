@@ -15,11 +15,6 @@ import { ChatService, mountChatRoutes } from './api/chat.js';
 import { HistoryService, mountHistoryRoutes } from './api/history.js';
 import { ReportsService, mountReportRoutes } from './reports.js';
 import { mountSetupApiRoutes, type SetupApiDeps } from './api/setup.js';
-import { mountGrokRoutes } from './api/grok.js';
-import type { GrokBridge } from './connectors/grok/bridge.js';
-import type { KeyRegistry } from './connectors/grok/auth.js';
-import { mountResearchRoutesV2, type ResearchRouteDeps } from './api/research.js';
-import { mountWalletRoutes, type WalletRouteDeps } from './api/wallet.js';
 import { mountLocalAgentsRoutes } from './api/local-agents.js';
 import { mountIndodaxRoutes } from './api/indodax.js';
 import { mountIndodaxPaper } from './api/indodax-paper.js';
@@ -36,10 +31,6 @@ export interface ReplacementAppOptions {
   chatService?: ChatService;
   historyService?: HistoryService;
   setupDeps?: SetupApiDeps;
-  walletDeps?: WalletRouteDeps;
-  grokBridge?: GrokBridge;
-  grokKeyRegistry?: KeyRegistry;
-  researchDeps?: ResearchRouteDeps;
   mountAdditionalRoutes?: (app: express.Express, runtime: OfficeRuntime) => void;
 }
 
@@ -180,23 +171,6 @@ export function createReplacementApp(
     mountLocalAgentsRoutes(app, { ...options.setupDeps, runtime });
   }
 
-  const walletDeps =
-    options.walletDeps ??
-    (options.setupDeps
-      ? { settings: options.setupDeps.settings, secrets: options.setupDeps.secrets }
-      : undefined);
-
-  if (walletDeps) {
-    mountWalletRoutes(app, walletDeps);
-  }
-
-  if (options.grokBridge && options.grokKeyRegistry) {
-    mountGrokRoutes(app, options.grokBridge, options.grokKeyRegistry, runtime);
-  }
-
-  if (options.researchDeps) {
-    mountResearchRoutesV2(app, options.researchDeps);
-  }
 
   const reportsService = options.reportsService ?? new ReportsService();
   const reportInterval = options.setupDeps?.settings.current().effective.auto.reportIntervalMin ?? 60;

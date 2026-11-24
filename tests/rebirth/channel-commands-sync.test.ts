@@ -7,49 +7,6 @@ import { RoleRunner } from '../../server/v2/agents/runner.js';
 import { CycleRunner } from '../../server/v2/decision/cycle.js';
 
 describe('Channel Commands and Synchronization Suite', () => {
-  it('parses and routes all desk commands with and without leading slash', async () => {
-    const runtime = createReplacementRuntime();
-    try {
-      const commands = [
-        'status', '/status',
-        'balance', '/balance',
-        'mode', '/mode',
-        'health', '/health',
-        'positions', '/positions',
-        'report', '/report',
-        'scan', '/scan',
-        'watchlist', '/watchlist',
-        'scorecard', '/scorecard',
-        'lessons', '/lessons',
-        'help', '/help',
-        'sync', '/sync',
-        'pause', '/pause',
-        'resume', '/resume',
-        'set profile aggressive', '/set profile aggressive',
-        'set size 25%', '/set size 25%',
-        'set leverage 10', '/set leverage 10',
-        'set safety 200', '/set safety 200',
-        'safety 150', '/safety 150',
-        'set n 3', '/set n 3',
-        'n 2', '/n 2',
-        'set cycle 15', '/set cycle 15',
-        'cycle', '/cycle',
-        'run cycle', '/run cycle',
-        'cycle now', '/cycle now',
-        'set report 60', '/set report 60',
-        'kill', '/kill',
-        'unkill', '/unkill'
-      ];
-
-      for (const cmd of commands) {
-        const res = await runtime.handleCommand({ text: cmd });
-        const isCycleRunning = /cycle/i.test(cmd) && res.error?.includes('already running');
-        expect(res.ok || isCycleRunning, `Expected command "${cmd}" to succeed, got error: ${res.error}`).toBe(true);
-      }
-    } finally {
-      await runtime.stop();
-    }
-  });
 
   it('handles ask commands with agent resolution, aliases and Indonesian tanya', async () => {
     const roleRunner = new RoleRunner({

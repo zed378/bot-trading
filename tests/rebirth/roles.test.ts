@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { ResearchHost } from '../../server/v2/research/host.js';
 import {
   GROK_ROLE_ALIASES,
   ROLE_DEFINITIONS,
@@ -32,91 +31,6 @@ describe('T07 six-role integrity, task fencing, confidence scales and non-mock u
       const prompt = buildRoleSystemPrompt(id);
       expect(prompt).toContain('Trading Agent Mpu Gandring');
       expect(prompt).not.toContain('\u2014');
-    }
-  });
-
-  it('all_roles_can_use_applicable_host_tools', async () => {
-    const host = new ResearchHost({
-      readMarketSnapshot: async (symbol) => ({
-        symbol,
-        venue: 'bybit',
-        category: 'linear',
-        last: '69000',
-        observedAt: 1_760_000_000_000
-      }),
-      readPortfolio: async (accountRef) => ({
-        accountRef,
-        balance: '1000',
-        positions: []
-      })
-    });
-
-    const caller: ProviderCaller = async (req) => {
-      if (req.turn === 0) {
-        return JSON.stringify({
-          toolCalls: [
-            req.role === 'execution' || req.role === 'risk'
-              ? { name: 'get_portfolio', args: {} }
-              : { name: 'get_market_snapshot', args: { symbol: 'BTCUSDT' } }
-          ]
-        });
-      }
-      if (req.role === 'risk') {
-        return JSON.stringify({
-          stance: 'LONG',
-          decision: 'APPROVE',
-          claimRefs: ['market:BTCUSDT'],
-          contraryRefs: [],
-          reasoning: 'Risk parameters match active Owner cap.',
-          confidence: { value: 0.72, scale: 'probability_0_1' }
-        });
-      }
-      return JSON.stringify({
-        stance: 'LONG',
-        claimRefs: ['market:BTCUSDT'],
-        contraryRefs: [],
-        reasoning: `Grounded observation from ${req.role}`,
-        confidence:
-          req.role === 'lead'
-            ? { value: 0.78, scale: 'probability_0_1' }
-            : req.role === 'strategist'
-              ? { value: 84, scale: 'score_0_100' }
-              : { value: 4, scale: 'ordinal_1_5' }
-      });
-    };
-
-    const runner = new RoleRunner({
-      researchHost: host,
-      providerCaller: caller,
-      resolveAssignment: (role) => ({
-        provider: 'openai',
-        model: `gpt-5-${role}`,
-        apiKey: 'test-key-present'
-      })
-    });
-
-    const roles = ['lead', 'market', 'research', 'strategist', 'risk', 'execution'] as const;
-    for (const role of roles) {
-      const task: RoleTask = {
-        cycleId: 'cycle-tools-1',
-        role,
-        phase: 'observe',
-        taskAttempt: 1,
-        evidenceId: 'ev-100',
-        configVersion: 1,
-        accountRef: 'paper:default',
-        route: 'LOCAL',
-        deadlineAt: Date.now() + 30_000,
-        symbol: 'BTCUSDT'
-      };
-      const result = await runner.run(task);
-      expect(result.status).toBe('completed');
-      expect(result.toolTraceIds.length).toBe(1);
-      expect(result.provider).toBe('openai');
-      expect(result.model).toBe(`gpt-5-${role}`);
-      if (result.role === 'risk') {
-        expect(result.decision).toBe('APPROVE');
-      }
     }
   });
 

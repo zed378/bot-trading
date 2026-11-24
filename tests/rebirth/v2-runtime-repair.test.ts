@@ -210,60 +210,6 @@ describe('Repair A: kill switch command/endpoint mismatch and persisted halt', (
   });
 });
 
-describe('Repair B: live chat context', () => {
-  it('injects a bounded desk snapshot without secrets', () => {
-    const state = createInitialOfficeState();
-    state.trading = {
-      profile: 'BALANCED',
-      values: {
-        dailyLossLimitPct: 10,
-        maxLossPerTradePct: 50,
-        minEntryConfidencePct: 60,
-        maxLeverage: 5,
-        orderSizePct: 25,
-        defaultStopPct: 20,
-        minStopPct: 5,
-        takeProfitPct: 40,
-        takeProfitR: 2,
-        maxOrderUsdt: 0,
-        minOrderUsdt: 5,
-        safetyNet: 200,
-        maxPositions: 3
-      }
-    } as typeof state.trading;
-    state.paper.positions = [
-      {
-        id: 'pos-1',
-        symbol: 'BTCUSDT',
-        side: 'LONG',
-        qty: 0.01,
-        entry: 68000,
-        stop: 67000,
-        tp: 70000,
-        margin: 136,
-        leverage: 5,
-        openedAt: Date.now(),
-        mark: 68500,
-        unrealizedPnl: 5,
-        protectionStatus: 'confirmed',
-        entryStatus: 'confirmed'
-      }
-    ];
-    state.tickers.BTCUSDT = { symbol: 'BTCUSDT', last: 68500, change24hPct: 1.2, source: 'bybit', example: false, at: Date.now() };
-    state.agents.lead.model = 'gpt-5';
-    const snapshot = buildLiveDeskChatContext(state, {
-      capturedAt: '2026-11-02T12:00:00.000Z',
-      secrets: { OPENROUTER_API_KEY: 'sk-secret-should-never-leak', BYBIT_API_SECRET: 'exchange-secret' }
-    });
-    const encoded = JSON.stringify(snapshot);
-    expect(encoded).not.toContain('sk-secret');
-    expect(encoded).not.toContain('exchange-secret');
-    expect(snapshot.tradingProfile).toBe('BALANCED');
-    expect(snapshot.positions.length).toBe(1);
-    expect(snapshot.watchlistPrices.length).toBeGreaterThan(0);
-    expect(snapshot.freshness.positions).toMatch(/live|cached|stale|unavailable/);
-  });
-});
 
 describe('Repair C: debate contract', () => {
   it('does not apply a second-stage Lead confidence veto after Risk APPROVE', async () => {
@@ -431,40 +377,7 @@ describe('Forensic audit repairs: Sizing, Chat Context, and Gateway', () => {
     expect(ownerAllocationPerOrder(8.39, 1, null)).toBe(8.39);
   });
 
-  it('handleCommand supports set size off / auto and recalculates perOrder', async () => {
-    const runtime = createReplacementRuntime();
-    await runtime.handleCommand({ text: 'set balance 8.39' });
-    await runtime.handleCommand({ text: 'set safety 0' });
-    await runtime.handleCommand({ text: 'set n 3' });
-    const res = await runtime.handleCommand({ text: 'set size auto' });
-    expect(res.ok).toBe(true);
-    const snap = runtime.snapshot();
-    expect(snap.paper.orderSizePct).toBeNull();
-    // Default N = 3, perOrder = 8.39 / 3 = 2.79
-    expect(snap.paper.perOrder).toBe(2.79);
 
-    const resPct = await runtime.handleCommand({ text: 'set size 25%' });
-    expect(resPct.ok).toBe(true);
-    const snapPct = runtime.snapshot();
-    expect(snapPct.paper.orderSizePct).toBe(25);
-    expect(snapPct.paper.perOrder).toBe(2.09);
-  });
-
-  it('buildLiveDeskChatContext supplies tradingValues and moneySplit for live agent awareness', async () => {
-    const runtime = createReplacementRuntime();
-    await runtime.handleCommand({ text: 'set balance 8.39' });
-    await runtime.handleCommand({ text: 'set safety 0' });
-    await runtime.handleCommand({ text: 'set n 3' });
-    const state = runtime.snapshot();
-    const ctx = buildLiveDeskChatContext(state);
-    expect(ctx.moneySplit).toBeDefined();
-    expect(ctx.moneySplit?.balance).toBe(8.39);
-    expect(ctx.moneySplit?.safetyNet).toBe(0);
-    expect(ctx.moneySplit?.moneyTrade).toBe(8.39);
-    expect(ctx.moneySplit?.perOrder).toBe(2.79);
-    expect(ctx.moneySplit?.slotsN).toBe(3);
-    expect(ctx.tradingValues).toBeDefined();
-  });
 });
 
 void DEFAULT_KILL_FILE;

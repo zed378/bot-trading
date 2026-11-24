@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import { safe } from '../../redact.js';
-import { fenceData } from '../../untrusted.js';
 import type { ConfidenceReading, ConfidenceScale, RoleId } from '../contracts.js';
-import type { ResearchHost } from '../research/host.js';
 import {
   createOfficialProviderCaller,
   type ProviderAssignment,
@@ -242,13 +240,11 @@ export function getRoleSchemaInstruction(role: RoleId): string {
 }
 
 export interface RoleRunnerOptions {
-  researchHost?: ResearchHost;
   providerCaller?: ProviderCaller;
   resolveAssignment: (role: RoleId, configVersion: number) => ProviderAssignment;
 }
 
 export class RoleRunner {
-  private readonly researchHost?: ResearchHost;
   private readonly providerCaller: ProviderCaller;
   private readonly resolveAssignment: (role: RoleId, configVersion: number) => ProviderAssignment;
   private readonly activeAttempts = new Map<string, { attempt: number; abort: AbortController }>();
@@ -257,7 +253,6 @@ export class RoleRunner {
   private readonly maxRetainedCycles = 20;
 
   constructor(options: RoleRunnerOptions) {
-    this.researchHost = options.researchHost;
     this.providerCaller = options.providerCaller ?? createOfficialProviderCaller();
     this.resolveAssignment = options.resolveAssignment;
   }
@@ -288,41 +283,7 @@ export class RoleRunner {
         provenOsSandbox: assignment.provenOsSandbox
       });
 
-      if (!this.researchHost) {
-        break;
-      }
-
-      let maybeToolObj: unknown = null;
-      try {
-        maybeToolObj = tryParseJson(rawText);
-      } catch {
-        break;
-      }
-
-      const toolParsed = ToolCallEnvelopeSchema.safeParse(maybeToolObj);
-      if (!toolParsed.success || toolParsed.data.toolCalls.length === 0) {
-        break;
-      }
-
-      const toolOutputs: unknown[] = [];
-      for (const call of toolParsed.data.toolCalls) {
-        const res = await this.researchHost.run(call, {
-          role: input.role,
-          cycleId: input.cycleId,
-          accountRef: 'chat:owner',
-          evidenceId: `chat-${input.cycleId}`
-        });
-        toolOutputs.push({
-          tool: call.name,
-          traceId: res.traceId,
-          status: res.status,
-          sourceRefs: res.sourceRefs,
-          data: res.data,
-          error: res.error
-        });
-      }
-
-      user = `${user}\n\n${fenceData('host_tool_results', toolOutputs)}`;
+      break;
     }
 
     return rawText;
@@ -537,37 +498,14 @@ export class RoleRunner {
           break;
         }
 
-        if (!this.researchHost) {
-          return this.makeEmptyResult(
-            task,
-            'unavailable',
-            provider,
-            model,
-            toolTraceIds,
-            'Role requested host tools while ResearchHost is unavailable'
-          );
-        }
-
-        const toolOutputs: unknown[] = [];
-        for (const call of toolParsed.data.toolCalls) {
-          const res = await this.researchHost.run(call, {
-            role: task.role,
-            cycleId: task.cycleId,
-            accountRef: task.accountRef,
-            evidenceId: task.evidenceId
-          });
-          toolTraceIds.push(res.traceId);
-          toolOutputs.push({
-            tool: call.name,
-            traceId: res.traceId,
-            status: res.status,
-            sourceRefs: res.sourceRefs,
-            data: res.data,
-            error: res.error
-          });
-        }
-
-        userPrompt = `${userPrompt}\n\n${fenceData('host_tool_results', toolOutputs)}`;
+        return this.makeEmptyResult(
+          task,
+          'unavailable',
+          provider,
+          model,
+          toolTraceIds,
+          'Role requested tools, which are not available in an Indodax cycle'
+        );
       }
 
       let parsedJson: unknown;

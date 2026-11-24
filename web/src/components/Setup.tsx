@@ -4,7 +4,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { officeFetch as fetch } from '../officeApi';
 import type { DeskState } from '../types';
-import { WalletPanel } from './Wallet';
 import { ChannelsSetup } from './Channels';
 import { ModelsSetup } from './ModelsSetup';
 import { PreferencesSetup } from './PreferencesSetup';
@@ -260,7 +259,6 @@ export function SetupWizard({ state, onClose, tradingProfile }: { state: DeskSta
                     <p className="wallet-note small">{lang === 'id' ? 'Ditolak: seed phrase, private key dompet utama, key dengan izin withdraw. Jangan pernah menempelkan API key ke dalam chat.' : 'Refused: seed phrases, main wallet keys, keys that can withdraw. Never paste a key into a chat.'}</p>
                   </form>
                 ) : <p className="wallet-note">{t('setupExchangeKeyEntryUnavailable')} {info.keyEntry.reason}</p>}
-                {guide?.connectWallet && <WalletPanel state={state} />}
                 {activeVenuesStatus.map((n) => <p key={n.network} className="wallet-note small">{n.network}: {n.fields.map((f) => `${f.name} ${f.set ? (f.shown ?? (lang === 'id' ? 'tersimpan' : 'set')) : (lang === 'id' ? 'kosong' : 'empty')}`).join(', ')}</p>)}
                 </details>
 

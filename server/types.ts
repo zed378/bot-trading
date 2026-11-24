@@ -42,7 +42,6 @@ export interface ConversationSummary {
 
 export interface OrderbookSummary {
   provenance?: import('./market/provenance.js').FeedProvenance;
-  liquidityChanges?: import('./market/microstructure.js').LiquidityChanges | null;
   bidObservedCoveragePct?: number;
   askObservedCoveragePct?: number;
   maxObservedCoveragePct?: number;
@@ -50,7 +49,6 @@ export interface OrderbookSummary {
   actualDataVenue?: string;
   dataType?: string;
   sourceEndpoint?: string;
-  depthBands?: Record<'0.5%' | '1.0%' | '2.0%', import('./market/microstructure.js').DepthBand>;
   levelsReturned?: { bids: number; asks: number };
   evidence?: MeasurementEvidence;
   bidAskImbalance05Pct: number;
@@ -69,7 +67,6 @@ export interface OrderflowSummary {
   actualDataVenue?: string;
   dataType?: string;
   sourceEndpoint?: string;
-  rollingWindows?: Record<'1m' | '5m' | '15m', import('./market/microstructure.js').FlowWindow>;
   evidence?: MeasurementEvidence;
   takerBuyVol: number;
   takerSellVol: number;
@@ -80,7 +77,6 @@ export interface OrderflowSummary {
 }
 
 export interface DerivativesSummary {
-  positioning?: import('./market/positioning.js').PositioningSummary;
   evidence?: Record<string, MeasurementEvidence>;
   fundingRate: number | null;
   predictedFunding: number | null;
@@ -157,13 +153,10 @@ export interface WhaleOnChainSummary {
 export interface MarketSnapshot {
   collectorStartedAt?: number;
   collectorEndedAt?: number;
-  candleMetadata?: import('./market/observations.js').CandleMetadata;
   volumeDiagnostics?: ReturnType<typeof import('./strategy.js').volumeDiagnostics>;
   feedProvenance?: Record<string, import('./market/provenance.js').FeedProvenance>;
   dataProvenance?: { requestedVenue: string; actualVenue: string; dataType: 'native' | 'reference'; symbolMapping: { requested: string; actual: string; transformed: boolean }; executionCompatible: boolean; fetchedAt: number };
   snapshotId?: string;
-  cmcMomentum?: import('./market/coinmarketcap.js').CmcMomentum;
-  tacticalTradePlan?: import('./market/tactical.js').TacticalTradePlan;
   evidence?: Record<string, MeasurementEvidence>;
   symbol: string;
   source: 'bybit' | 'binance' | 'hyperliquid' | 'aster' | 'dydx' | 'paradex' | 'orderly' | 'sample';
@@ -180,7 +173,6 @@ export interface MarketSnapshot {
   derivatives?: DerivativesSummary | null;
   technicalSummary?: TechnicalSummary | null;
   whaleOnChain?: WhaleOnChainSummary | null;
-  coinMarketCap?: import('./market/coinmarketcap.js').CoinMarketCapSummary | null;
 }
 
 export interface NewsItem {
@@ -188,7 +180,6 @@ export interface NewsItem {
   windowStartAt?: number | null;
   windowEndAt?: number | null;
   metric?: { value: number; unit: string; scope: string; windowHours?: number };
-  metricProvenance?: import('./market/news.js').MetricProvenance;
   observedAt?: number;
   affectedAssets?: string[];
   eventCategory?: string;
@@ -262,8 +253,6 @@ export interface Verdict {
   ownerMinConfidencePct?: number;
   riskAssessment?: { decision: string; reason: string; fallback: boolean };
   nativeQuote?: Record<string, unknown>;
-  debateEvidence?: import('./decision/debate-evidence.js').DebateEvidence;
-  closeTrigger?: import('./decision/debate-evidence.js').CloseTriggerReason;
   executionStatus?: 'partial' | 'filled' | 'closed';
   id: string;
   symbol: string;

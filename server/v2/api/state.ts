@@ -11,7 +11,8 @@ import {
   sessionFiles,
   type SessionLogger
 } from '../../session-log.js';
-import { isLocalLoopbackClient, TIMEFRAMES, type OfficeRuntime } from '../contracts.js';
+import { INDODAX_TIMEFRAMES } from '../../../shared/indodax.js';
+import { isLocalLoopbackClient, type OfficeRuntime } from '../contracts.js';
 
 const clientLogBodySchema = z.object({
   level: z.string().transform((s) => s.toUpperCase()).pipe(z.enum(['DEBUG', 'INFO', 'WARN', 'ERROR'])).optional(),
@@ -112,72 +113,22 @@ export function mountStateRoutes(
   });
 
   app.get('/api/candles', async (req, res) => {
-    const symbol = String(req.query.symbol ?? 'BTCUSDT').trim().toUpperCase();
-    const rawTf = String(req.query.tf ?? '15m').trim();
-    const tf = (TIMEFRAMES as readonly string[]).includes(rawTf) ? rawTf : '15m';
-
-    const hub = (runtime as any).marketHub;
-    if (hub && typeof hub.snapshot === 'function') {
-      try {
-        let snap = hub.snapshot(symbol);
-        let bars = snap.closed?.[tf] ?? [];
-        if (bars.length === 0 && typeof hub.bootstrapSymbol === 'function') {
-          await hub.bootstrapSymbol(symbol).catch(() => {});
-          snap = hub.snapshot(symbol);
-          bars = snap.closed?.[tf] ?? [];
-        }
-        if (bars.length > 0) {
-          const candles = bars.map((b: any) => ({
-            time: Math.floor(b.startAt / 1000),
-            open: Number(b.open),
-            high: Number(b.high),
-            low: Number(b.low),
-            close: Number(b.close),
-            volume: Number(b.volume),
-            confirmed: true
-          }));
-          const openBar = snap.open?.[tf];
-          if (openBar) {
-            candles.push({
-              time: Math.floor(openBar.startAt / 1000),
-              open: Number(openBar.open),
-              high: Number(openBar.high),
-              low: Number(openBar.low),
-              close: Number(openBar.close),
-              volume: Number(openBar.volume),
-              confirmed: false
-            });
-          }
-          const last = snap.last?.value !== null ? Number(snap.last.value) : null;
-          res.json({
-            symbol,
-            tf,
-            source: 'bybit',
-            dataType: 'reference',
-            example: false,
-            fetchedAt: Date.now(),
-            last,
-            candles,
-            availability: 'AVAILABLE'
-          });
-          return;
-        }
-      } catch {
-        // Fall back to unavailable response
-      }
-    }
-
-    res.json({
-      symbol,
-      tf,
-      source: 'bybit_unavailable',
-      dataType: 'reference',
-      example: false,
-      fetchedAt: Date.now(),
-      last: null,
-      candles: [],
-      availability: 'UNAVAILABLE'
+    const symbol = String(req.query.symbol ?? '').trim().toUpperCase();
+    const tf = String(req.query.tf ?? '4h').trim();
+    const unavailable = (source: string) => res.json({
+      symbol, tf, source, dataType: 'reference', example: false, fetchedAt: Date.now(), last: null, candles: [], availability: 'UNAVAILABLE'
     });
+    if (!runtime.indodaxClient || !(INDODAX_TIMEFRAMES as readonly string[]).includes(tf)) return unavailable('indodax_unavailable');
+    try {
+      const market = await runtime.indodaxClient.market(symbol, tf as typeof INDODAX_TIMEFRAMES[number]);
+      res.json({
+        symbol: market.pair.symbol, tf, source: 'indodax', dataType: 'reference', example: false, fetchedAt: market.observedAt, last: Number(market.last),
+        candles: market.candles.map((c) => ({ time: c.time, open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close), volume: Number(c.volume), confirmed: true })),
+        availability: 'AVAILABLE'
+      });
+    } catch {
+      unavailable('indodax_unavailable');
+    }
   });
 
   app.post('/api/logs/client', (req, res) => {

@@ -8,7 +8,6 @@ import { EquityChart, AllocationBars } from './MiniCharts';
 import { fmt, fmtPx } from './format';
 import { useI18n } from '../i18n';
 import type { UpdateInfo } from './UpdateModal';
-import { WalletMenu } from './WalletMenu';
 import { activityEntries, activityForView, activityParticipants, filterActivity, type ActivityFilter, type ActivityView } from '../activityLog';
 import { SessionLogs } from './SessionLogs';
 import { FormattedText } from '../formatText';
@@ -275,7 +274,6 @@ export function TopBar({
           />
           <span>Cendol</span>
         </button>
-        {state && onVenueKeys && <WalletMenu state={state} open={walletOpen} onOpen={onVenueKeys} onClose={onCloseWallet ?? (() => {})} />}
         {(onSetup || onTour) && <details className="settings-menu">
           <summary id="setup-trigger" className="badge setup-btn" aria-label={lang === 'id' ? 'Menu Setup' : 'Setup menu'}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m9 3-1 3-3 1-2 3 2 2-1 3 3 2 1 3h4l1-3 3-1 3-3-2-2 1-3-3-2-1-3Z"/><circle cx="11" cy="12" r="3"/></svg>
