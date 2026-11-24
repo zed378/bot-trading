@@ -18,7 +18,7 @@ Angka di bawah diambil dari repo pada commit `3904fed`.
 
 | Hal | Temuan |
 | --- | --- |
-| Ukuran | sekitar 68.000 baris TypeScript di `server`, `web/src`, dan `cli`; 255 file di `server`; 153 entri di `tests`; 98 file di `docs` |
+| Ukuran | sekitar 68.000 baris TypeScript di `server`, `web/src`, dan `cli`; 255 file di `server`; 222 berkas tes (153 entri tingkat atas ditambah `tests/rebirth/`); 98 file di `docs` |
 | Titik masuk | `server/index.ts` memuat `server/v2/runtime.ts` (222 KB). Jalur v2 inilah yang hidup |
 | Jalur lama | `server/desk.ts` (199 KB), `server/app.ts`, `server/runtime.ts`, `server/auto.ts` dan modul sekitarnya. `server/v2/runtime.ts` tidak mengimpor `desk.ts`, tetapi `server/setup/routes.ts`, `server/research/routes.ts`, `server/channels/*`, `server/reports.ts`, `server/scan.ts` dan `cli/debate.ts` masih mengimpornya. Apakah semuanya terputus dari jalur v2 harus dibuktikan dengan graf impor (tugas 0.2) |
 | Venue | 8 adaptor di `server/exchange/` dan 8 adaptor di `server/v2/execution/adapters/`: aster, binance, bybit, dydx, hyperliquid, okx, orderly, paradex |
@@ -133,7 +133,7 @@ Menyempitkan cakupan bukan melonggarkan pengaman. Namun `AGENTS.md` melarang pel
 | --- | --- | --- |
 | Modul yang tampak mati ternyata dipakai jalur Indodax lewat impor tidak langsung (`types.ts` diimpor 56 file, `config.ts` 27 file) | Build rusak di tengah penghapusan | Graf impor di tugas 0.2, penghapusan per kelompok dengan `typecheck` dan build di tiap langkah, `types.ts` dan `config.ts` dipangkas terakhir |
 | `server/v2/runtime.ts` (222 KB) memuat logika debat, eksekusi, kanal, dan wallet dalam satu file | Sulit dipotong dengan aman | Pecah dulu menjadi modul kecil per tanggung jawab (tugas 3.1), baru hapus |
-| Tes yang ada (153 entri) sebagian besar menguji venue lain | Kehilangan jaring pengaman tanpa disadari | Klasifikasikan tiap tes (pertahankan, tulis ulang, hapus) di tugas 0.3 sebelum menghapus kodenya. Tes pengaman bagian 7 tidak boleh ikut terhapus |
+| Tes yang ada (222 berkas) sebagian besar menguji venue lain: 82 berlabel hapus dan 91 tulis ulang, hanya 29 yang bisa dipertahankan apa adanya | Kehilangan jaring pengaman tanpa disadari | Klasifikasikan tiap tes (pertahankan, tulis ulang, hapus) di tugas 0.3 sebelum menghapus kodenya. Tes pengaman bagian 7 tidak boleh ikut terhapus |
 | Kapasitas penyedia model: satu siklus memanggil sekitar 9 role berurutan, dan sesi tadi gagal dengan HTTP 429 dari `openrouter/free` lalu HTTP 503 `All providers busy` dari jerouter | Debat tidak selesai walau kodenya benar | Catat jumlah panggilan per siklus, tambah jeda dan batas coba ulang yang terukur (tugas 4.5). Ini bukan bagian penghapusan, tetapi menentukan apakah hasil perombakan bisa dicoba |
 | Riwayat git terpisah dari upstream | Pembaruan upstream tidak bisa lagi diambil lewat cherry-pick | Terima sebagai konsekuensi. Remote `upstream` tetap boleh dipertahankan untuk referensi baca |
 | Penghapusan mengubah `package.json`, `package-lock.json`, dan build Docker | Image Docker gagal dibangun | Bangun image dan jalankan satu sesi PAPER di akhir setiap fase |
