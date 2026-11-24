@@ -116,8 +116,15 @@ Diisi saat eksekusi. Tiap fase mencatat tanggal, hasil gerbang, tes yang gagal s
 
 | Fase | Tanggal | Hasil gerbang | Catatan |
 | --- | --- | --- | --- |
-| 0 | | | |
-| 1 | | | |
+| 0 | 2026-11-24 | Lulus. Baseline bersih 222 berkas, 1545 tes | Satu regresi dari commit `9089998` ditemukan dan diperbaiki di `c6f5aab`. Inventaris, klasifikasi tes, dan tiga celah pengaman tercatat |
+| 1 | 2026-11-24 | Lulus. Build, typecheck, 223 berkas dan 1562 tes (17 baru) | Kontrak ditambahkan: `shared/indodax-context.ts`, `shared/indodax-verdict.ts`, `server/market/indodax-symbol.ts`, `indodax-context.ts`, `indodax-analysis.ts`. Sesi PAPER sekarang memakai `buildIndodaxContext`. Dua penyimpangan dari rencana, lihat di bawah |
+
+Penyimpangan di fase 1:
+
+1. Tugas 1.4: teks kendala yang dikirim sesi PAPER berubah. Teks lama menyebut SHORT, leverage, dan limit order sebagai hal yang tidak tersedia, sedangkan 1.5 melarang kata-kata itu muncul di teks kendala. Teks baru hanya menyebut tindakan yang mungkin (LONG, HOLD, CLOSE) dengan order market. Penolakan SHORT dan limit order di sisi kode PAPER tidak berubah dan tetap dites. Prompt peran enam agen belum diubah sampai tugas 2.1.
+2. Tugas 1.3: `buildIndodaxContext` memakai `client.market()`, yang sudah menolak pasangan tidak terdaftar, maintenance, dan suspended. `resolveIndodaxSymbol` (memakai `client.pairs()`) berdiri sendiri untuk validasi di Office, CLI, dan chat pada tugas 2.4. Alasannya: tes PAPER yang ada mengganti `market()` pada klien palsu, jadi memanggil `pairs()` di dalam pembangun konteks akan menyentuh jaringan.
+
+`IndodaxVerdictSchema` (1.2) belum dipasang ke siklus. Pemasangannya ada di tugas 2.2.
 | 2 | | | |
 | 3 | | | |
 | 4 | | | |
