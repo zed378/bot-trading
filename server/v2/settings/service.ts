@@ -191,7 +191,7 @@ export class SettingsService {
 
   private constructor(
     private readonly store: RuntimeStore,
-    private readonly secrets: SecretStore,
+    _secrets: SecretStore,
     initial: SettingsSnapshot,
     private readonly hooks: SettingsCoordinatorHooks = {}
   ) {

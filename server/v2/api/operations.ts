@@ -2,47 +2,6 @@ import type express from 'express';
 import { z } from 'zod';
 import { isLocalLoopbackClient, type OfficeRuntime } from '../contracts.js';
 
-const sizeBodySchema = z.object({
-  symbol: z.string().min(1),
-  side: z.enum(['LONG', 'SHORT']),
-  entry: z.string().min(1),
-  stop: z.string().min(1),
-  leverage: z.number().int().positive().optional()
-});
-
-const openBodySchema = z.object({
-  symbol: z.string().min(1),
-  side: z.enum(['LONG', 'SHORT']),
-  qty: z.string().min(1),
-  stop: z.string().min(1),
-  tp: z.string().optional().nullable(),
-  leverage: z.number().int().positive().optional(),
-  orderType: z.enum(['MARKET', 'LIMIT_GTC']).default('MARKET'),
-  limitPrice: z.string().optional()
-});
-
-const closeBodySchema = z.object({
-  symbol: z.string().min(1),
-  cause: z.string().optional()
-});
-
-const cancelEntryBodySchema = z.object({
-  clientId: z.string().min(1),
-  symbol: z.string().optional()
-});
-
-const autoBodySchema = z.object({
-  on: z.boolean().optional(),
-  runNow: z.boolean().optional(),
-  intervalMin: z.number().int().min(1).max(1440).optional(),
-  maxHoldHours: z.number().int().min(0).max(720).optional(),
-  reportIntervalMin: z.number().int().min(1).max(1440).optional(),
-  symbols: z.array(z.string()).optional(),
-  symbolsOverride: z.array(z.string()).optional(),
-  n: z.number().int().min(1).max(4).optional(),
-  debateMode: z.enum(['normal', 'fast']).optional()
-});
-
 const commandBodySchema = z.object({
   text: z.string().min(1),
   agent: z.string().optional(),

@@ -32,7 +32,7 @@ function initialTourOpen() {
 
 function AppInner() {
   const { t, lang } = useI18n();
-  const { state, connected, speech, fights, meter, reactions, cendolBanner, dismissCendolBanner, triggerCendolTip, sceneEvents, command, activeConversationId, selectConversation, newConversation, deleteConversation } = useDesk();
+  const { state, connected, speech, fights, meter, reactions, cendolBanner, dismissCendolBanner, sceneEvents, command, activeConversationId, selectConversation, newConversation, deleteConversation } = useDesk();
   const [selected, setSelected] = useState<AgentId | null>(null);
   const [theme, setTheme] = useState<string>(initialTheme);
   const [symbol, setSymbol] = useState<string>('');
