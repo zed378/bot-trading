@@ -254,7 +254,7 @@ export interface OfficeRuntime {
   }): Promise<{
     status: 'completed' | 'incomplete' | 'cancelled';
     verdict: {
-      action: 'OPEN_LONG' | 'OPEN_SHORT' | 'HOLD' | 'CLOSE';
+      action: 'OPEN_LONG' | 'HOLD' | 'CLOSE';
       thesis: { stop: string; tp: string | null; orderType: string } | null;
       rejectionReason: string | null;
     } | null;

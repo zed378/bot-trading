@@ -90,7 +90,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
 
     // Check whether this symbol already has an active open position being managed
     const hasPosition = /"hasPosition"\s*:\s*true/i.test(user);
-    const positionSide = (user.match(/"positionSide"\s*:\s*"(LONG|SHORT)"/i)?.[1] ?? 'LONG') as 'LONG' | 'SHORT';
+    const positionSide = 'LONG';
 
     // Extract market summary metrics from prompt context
     let lastPrice = 75000;
@@ -106,10 +106,10 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
     } catch {}
 
     const isBull = change24h >= 0;
-    const directionalStance: 'LONG' | 'SHORT' = isBull ? 'LONG' : 'SHORT';
-    const oppositeStance: 'LONG' | 'SHORT' = isBull ? 'SHORT' : 'LONG';
-    const stopRatio = isBull ? 0.975 : 1.025;
-    const tpRatio = isBull ? 1.05 : 0.95;
+    const directionalStance: 'LONG' | 'HOLD' = isBull ? 'LONG' : 'HOLD';
+    const oppositeStance: 'HOLD' | 'LONG' = isBull ? 'HOLD' : 'LONG';
+    const stopRatio = 0.975;
+    const tpRatio = 1.05;
     const priceDecimals = lastPrice >= 100 ? 2 : lastPrice >= 1 ? 4 : 6;
     const stopPrice = Number((lastPrice * stopRatio).toFixed(priceDecimals));
     const tpPrice = Number((lastPrice * tpRatio).toFixed(priceDecimals));
@@ -224,7 +224,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
         proposedStop: String(stopPrice),
         proposedTp: String(tpPrice),
         invalidationPredicate: {
-          kind: isBull ? 'PRICE_BELOW' : 'PRICE_ABOVE',
+          kind: 'PRICE_BELOW',
           level: String(stopPrice),
           description: `Breakout invalidation level at ${stopPrice}`
         },
@@ -273,7 +273,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
         },
         claimRefs: [`${symbol}-consensus`],
         contraryRefs: [],
-        reasoning: `Konsensus 3 analis tercapai searah ${directionalStance}. Risk gate menyetujui tiket eksekusi. Keputusan: OPEN_${directionalStance} ${symbol}.`
+        reasoning: `Konsensus 3 analis tercapai searah ${directionalStance}. Risk gate menyetujui tiket eksekusi. Keputusan: ${directionalStance === 'LONG' ? 'OPEN_LONG' : 'HOLD'} ${symbol}.`
       });
     }
 

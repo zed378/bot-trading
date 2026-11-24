@@ -422,14 +422,14 @@ export class JevClient {
     } | undefined;
     const obs = rawState?.observations ?? [];
     const bulls = obs.filter((o) => o.stance === 'LONG').length;
-    const bears = obs.filter((o) => o.stance === 'SHORT').length;
+    const holds = obs.filter((o) => o.stance === 'HOLD' || o.stance === 'CLOSE').length;
     const hasOpposing = Boolean(rawState?.marketSummary?.opposingFacts?.length || rawState?.opposingFacts?.length);
-    const regime = bulls > bears ? 'TRENDING_BULL' : bears > bulls ? 'TRENDING_BEAR' : (hasOpposing ? 'RANGING' : 'UNCERTAIN');
+    const regime = bulls > holds ? 'TRENDING_BULL' : (hasOpposing ? 'RANGING' : 'UNCERTAIN');
 
     return {
       status: 'unavailable',
       reviewId: fallbackId,
-      claimRefs: [`heuristic:bulls=${bulls}`, `heuristic:bears=${bears}`],
+      claimRefs: [`heuristic:bulls=${bulls}`, `heuristic:holds=${holds}`],
       contraryRefs: [],
       reason: `${note} · Local regime heuristic: ${regime}`,
       market_regime: regime

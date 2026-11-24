@@ -146,8 +146,47 @@ describe('T07 six-role integrity, task fencing, confidence scales and non-mock u
     expect(r1.status).toBe('cancelled');
     expect(r1.stance).toBeNull();
     expect(r2.status).toBe('completed');
-    expect(r2.stance).toBe('SHORT');
+    expect(r2.stance).toBe('HOLD');
     expect(runner.getAcceptedResult('cycle-cancel-1', 'lead', 'final')?.taskAttempt).toBe(2);
+  });
+
+  it('maps non-compliant SHORT stance to HOLD without holding and CLOSE with holding', async () => {
+    const runner = new RoleRunner({
+      providerCaller: async () => JSON.stringify({
+        stance: 'SHORT',
+        claimRefs: [],
+        contraryRefs: [],
+        reasoning: 'Bearish view',
+        confidence: { value: 0.7, scale: 'probability_0_1' }
+      }),
+      resolveAssignment: () => ({ provider: 'openai', model: 'gpt-5', apiKey: 'key-1' })
+    });
+    const noHolding = await runner.run({
+      cycleId: 'cycle-short-map-1',
+      role: 'market',
+      phase: 'observe',
+      taskAttempt: 1,
+      evidenceId: 'ev-1',
+      configVersion: 1,
+      accountRef: 'paper:default',
+      route: 'LOCAL',
+      deadlineAt: Date.now() + 30_000,
+      promptContext: { policy: { hasPosition: false } }
+    });
+    const withHolding = await runner.run({
+      cycleId: 'cycle-short-map-2',
+      role: 'market',
+      phase: 'observe',
+      taskAttempt: 1,
+      evidenceId: 'ev-2',
+      configVersion: 1,
+      accountRef: 'paper:default',
+      route: 'LOCAL',
+      deadlineAt: Date.now() + 30_000,
+      promptContext: { policy: { hasPosition: true } }
+    });
+    expect(noHolding.stance).toBe('HOLD');
+    expect(withHolding.stance).toBe('CLOSE');
   });
 
   it('no_key_is_unavailable_not_mock', async () => {

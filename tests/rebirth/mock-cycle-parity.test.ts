@@ -106,7 +106,7 @@ describe('V2 Mock Agent Deliberation and Chat Parity', () => {
     }));
 
     expect(marketObserve.stance).toBe('LONG');
-    expect(researchObserve.stance).toBe('SHORT');
+    expect(researchObserve.stance).toBe('HOLD');
 
     // In challenge phase, research shifts to consensus
     const researchChallenge = JSON.parse(await generateMockAgentReply({

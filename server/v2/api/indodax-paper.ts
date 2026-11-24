@@ -164,7 +164,7 @@ export function mountIndodaxPaper(app: express.Express, runtime: OfficeRuntime, 
       if (!enforceDailyLossCap(fresh.bid)) return;
       if (checkStops(fresh.bid)) return;
       if (verdict?.action === 'CLOSE') { closePaperPosition(fresh.bid, 'agent CLOSE'); return; }
-      if (verdict?.action === 'OPEN_SHORT') { state.lastAction = 'Rejected: Indodax paper agent is spot-only'; return; }
+      if ((verdict?.action as string) === 'OPEN_SHORT') { state.lastAction = 'Rejected: Indodax paper agent is spot-only'; return; }
       if (position || verdict?.action !== 'OPEN_LONG' || !verdict.thesis || verdict.thesis.orderType === 'LIMIT_GTC') return;
 
       const stop = DecimalStringSchema.safeParse(verdict.thesis.stop);

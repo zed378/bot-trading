@@ -10,8 +10,8 @@ interface CycleOutcome {
 }
 
 /**
- * The cycle engine still reasons with a two-sided ticket internally. Nothing leaves it for Indodax
- * unless it parses as a spot verdict; everything else becomes a HOLD that says why.
+ * Final spot verdict boundary for Indodax. Rejects any unexpected non-spot action
+ * or order type (such as OPEN_SHORT or LIMIT_GTC) by turning it into an explicit HOLD.
  */
 export function toIndodaxVerdict(outcome: CycleOutcome, symbol: string): IndodaxVerdict {
   const hold = (rejectionReason: string): IndodaxVerdict => ({ action: 'HOLD', symbol, thesis: null, rejectionReason });
