@@ -123,6 +123,12 @@ Diisi saat eksekusi. Tiap fase mencatat tanggal, hasil gerbang, tes yang gagal s
 | 4 | 2026-11-24 | Lulus. Build, typecheck, 57 berkas dan 294 tes | UI Setup, Ops, Channels (Telegram), Tour, i18n, Dockerfile, dan dependensi dipangkas untuk Indodax spot. Ketahanan penyedia 429/503 (`Retry-After` dan `providerCalls`) ditambahkan di `RoleRunner` dan diagnostik PAPER. Klik-tembus peramban interaktif penuh belum dijalankan langsung oleh agen |
 | 5 | 2026-11-24 | Lulus (tes otomatis); sesi PAPER nyata tertahan kuota penyedia | Semua 9 pengaman bagian 7 teruji di `indodax-safety`, `kill-file`, `untrusted`, `indodax-stops`, `postgres-integration`. Debat `analyze BTCIDR` pada stack Docker selesai sebagai `HOLD (INCOMPLETE)` karena penyedia `jerouter`/`openai` mengembalikan HTTP 503 `All providers busy` |
 | 6 | 2026-11-24 | Lulus. Build, typecheck, 57 berkas dan 294 tes | Dokumen venue lain dan riwayat usang dihapus, `README.md`, `docs/indodax*.md`, `CHANGELOG.md` diperbarui. `AGENTS.md` belum diubah dan menunggu persetujuan Owner |
+| T1 | 2026-11-24 | Lulus (dokumen rencana) | Menyusun ulang tabel "Catatan fase" agar fase 0 sampai 6 berurutan di atas paragraf penyimpangan fase 1 dan fase 2 |
+| T2 | 2026-11-24 | Lulus. Build, typecheck, 57 berkas dan 294 tes | Membuang enum rute `'GROK'` dan `'MIRROR_READ_ONLY'` dari `RoleRoute` dan skema setup; menyisakan `'LOCAL'` |
+| T3 | 2026-11-24 | Lulus. Build, typecheck, 57 berkas dan 294 tes | Membersihkan teks i18n `setupLocalSupervisorDesc` dan komentar di `server/redact.ts` serta `server/v2/execution/gateway.ts` tanpa menyebut Grok Bot |
+| T4 | 2026-11-24 | Lulus. Build, typecheck, 57 berkas dan 295 tes | Membuang logika internal `SHORT`, `leverage`, dan `LIMIT_GTC` di `runner.ts` (`mapNonSpotStance`), `cycle.ts`, `contracts.ts`, `exits.ts`, `revalidate.ts`, `jev.ts`, dan `mock.ts`, serta menyelaraskan tes terkait |
+| T5 | 2026-11-24 | Lulus. `tsc --noUnusedLocals` (server dan web), build, 57 berkas dan 295 tes | Membersihkan skema tak terpakai di `operations.ts`, properti `secrets` tak terpakai di `SettingsService`, opsi tak terpakai di `runtime.ts`, dan `triggerCendolTip` di `App.tsx` |
+| T6 | 2026-11-24 | Lulus. Build, typecheck, 57 berkas dan 295 tes | Menghapus direktori yatim `server/agents/personas` yang tak terpakai dan mengarahkan `vite.config.ts` ke `server/v2/agents/personas` |
 
 Penyimpangan di fase 1:
 
