@@ -10,7 +10,13 @@ import {
 import { buildRoleSystemPrompt } from './roles.js';
 
 export type RoleRoute = 'LOCAL';
-export type RoleStance = 'LONG' | 'SHORT' | 'HOLD' | 'CLOSE' | 'NEUTRAL';
+export type RoleStance = 'LONG' | 'HOLD' | 'CLOSE' | 'NEUTRAL';
+
+// Map non-compliant SHORT/BEARISH/SELL model outputs to CLOSE when holding, or HOLD otherwise (spot-only).
+function mapNonSpotStance(raw: 'LONG' | 'SHORT' | 'HOLD' | 'CLOSE' | 'NEUTRAL', hasPosition: boolean): RoleStance {
+  if (raw === 'SHORT') return hasPosition ? 'CLOSE' : 'HOLD';
+  return raw;
+}
 
 export interface ThesisInvalidationPredicate {
   kind: 'PRICE_BELOW' | 'PRICE_ABOVE' | 'STRUCTURE_BREAK';
@@ -732,6 +738,10 @@ export class RoleRunner {
         reason: confValue !== null && confScale !== null ? null : 'Confidence omitted'
       };
 
+      const hasPosition = Boolean(
+        (task.promptContext as { policy?: { hasPosition?: boolean } } | undefined)?.policy?.hasPosition
+      );
+
       const baseCompleted: BaseRoleResult = {
         cycleId: task.cycleId,
         role: task.role,
@@ -743,7 +753,7 @@ export class RoleRunner {
         route: task.route,
         deadlineAt: task.deadlineAt,
         status: 'completed',
-        stance: validated.data.stance,
+        stance: mapNonSpotStance(validated.data.stance, hasPosition),
         claimRefs: validated.data.claimRefs,
         contraryRefs: validated.data.contraryRefs,
         reasoning: validated.data.reasoning,

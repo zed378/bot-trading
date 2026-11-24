@@ -26,7 +26,7 @@ function makeMarketFrame(lastPrice: string | null, evidenceId = 'ev-fresh-1'): M
 }
 
 describe('T08 current thesis revalidation under post-approval and execution-lock market updates', () => {
-  it('reversal_after_ai_approval invalidates both LONG and SHORT when fresh market breaches thesis predicate', () => {
+  it('reversal_after_ai_approval invalidates LONG when fresh market breaches thesis predicate', () => {
     const longThesis: TradeThesis = {
       id: 'thesis-long-1',
       cycleId: 'cycle-1',
@@ -57,31 +57,6 @@ describe('T08 current thesis revalidation under post-approval and execution-lock
     });
     expect(longReversed.status).toBe('invalidated');
     expect(longReversed.evidenceRefs).toContain('ev-after-approval');
-
-    const shortThesis: TradeThesis = {
-      ...longThesis,
-      id: 'thesis-short-1',
-      side: 'SHORT',
-      stop: '69200',
-      tp: '66000',
-      invalidation: [
-        {
-          kind: 'PRICE_ABOVE',
-          level: '69200',
-          timeframe: '5m',
-          description: 'Reclaim 5m lower high above 69200'
-        }
-      ]
-    };
-
-    const shortReversed = revalidateEntry({
-      thesis: shortThesis,
-      activeConfigVersion: 1,
-      freshMarket: makeMarketFrame('69250', 'ev-short-reversal'),
-      structuralBreaks: []
-    });
-    expect(shortReversed.status).toBe('invalidated');
-    expect(shortReversed.evidenceRefs).toContain('ev-short-reversal');
   });
 
   it('reversal_after_lock_wait invalidates entry on confirmed opposing structure break and keeps unchanged thesis valid when optional research is down', () => {

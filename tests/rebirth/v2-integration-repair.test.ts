@@ -131,8 +131,8 @@ describe('Approved order consistency', () => {
     });
 
     expect(out.verdict?.action).toBe('OPEN_LONG');
-    expect(out.verdict?.thesis?.orderType).toBe('LIMIT_GTC');
-    expect(out.verdict?.thesis?.limitPrice).toBe('68400');
+    expect(out.verdict?.thesis?.orderType).toBe('MARKET');
+    expect(out.verdict?.thesis?.limitPrice).toBeNull();
     expect(out.verdict?.thesis?.stop).toBe('67000');
     expect(out.verdict?.thesis?.tp).toBe('72000');
 

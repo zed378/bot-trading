@@ -303,8 +303,8 @@ describe('external manual position', () => {
   });
 });
 
-describe('opposite-side candidate', () => {
-  it('re-checks a Lead side flip through Risk and does not mix the tickets', async () => {
+describe('lead ticket revision', () => {
+  it('re-checks a Lead stop/tp revision through Risk and applies the revised ticket', async () => {
     const seen: string[] = [];
     let riskCalls = 0;
     const runner = new RoleRunner({
@@ -312,14 +312,14 @@ describe('opposite-side candidate', () => {
         if (req.role === 'risk') {
           riskCalls += 1;
           seen.push(req.user);
-          const revised = req.user.includes('"side": "SHORT"');
+          const revised = req.user.includes('"stop": "67200"');
           return JSON.stringify({
-            stance: revised ? 'SHORT' : 'LONG',
-            decision: revised ? 'APPROVE' : 'APPROVE',
+            stance: 'LONG',
+            decision: 'APPROVE',
             claimRefs: ['ev-1'],
             contraryRefs: [],
-            reasoning: revised ? 'Final SHORT ticket is inside Owner caps.' : 'LONG ticket approved.',
-            confidence: { value: 0.2, scale: 'probability_0_1' }
+            reasoning: revised ? 'Revised LONG ticket is inside Owner caps.' : 'Initial LONG ticket approved.',
+            confidence: { value: 0.7, scale: 'probability_0_1' }
           });
         }
         if (req.role === 'execution') {
@@ -327,25 +327,21 @@ describe('opposite-side candidate', () => {
             stance: 'LONG',
             claimRefs: ['ev-1'],
             contraryRefs: [],
-            reasoning: 'Long limit.',
+            reasoning: 'Long entry.',
             confidence: { value: 0.7, scale: 'probability_0_1' },
             proposedStop: '67000',
-            proposedTp: '72000',
-            proposedOrderType: 'LIMIT_GTC',
-            proposedLimitPrice: '68400'
+            proposedTp: '72000'
           });
         }
         if (req.role === 'lead') {
           return JSON.stringify({
-            stance: 'SHORT',
+            stance: 'LONG',
             claimRefs: ['ev-1'],
             contraryRefs: [],
-            reasoning: 'Flip the side.',
-            confidence: { value: 0.2, scale: 'probability_0_1' },
-            proposedStop: '70000',
-            proposedTp: '64000',
-            proposedOrderType: 'MARKET',
-            proposedLimitPrice: null
+            reasoning: 'Tighten stop and tp.',
+            confidence: { value: 0.7, scale: 'probability_0_1' },
+            proposedStop: '67200',
+            proposedTp: '71500'
           });
         }
         return JSON.stringify({
@@ -360,30 +356,27 @@ describe('opposite-side candidate', () => {
       resolveAssignment: () => ({ provider: 'openai', model: 'gpt-5', apiKey: 'sk-test' })
     });
     const out = await new CycleRunner({ roleRunner: runner }).run({
-      cycleId: 'cycle-opposite-side',
+      cycleId: 'cycle-lead-revision',
       reason: 'owner',
       accountRef: 'paper:default',
       symbol: 'BTCUSDT',
       evidenceId: 'ev-1',
       configVersion: 1,
       policy: {
-        minEntryConfidencePct: 90,
+        minEntryConfidencePct: 60,
         requireTwoOfThreeAnalysts: false,
-        maxLeverage: 5,
         allocationPerOrderUsdt: 200
       },
       marketSummary: { last: '68500' }
     });
     expect(riskCalls).toBe(2);
-    expect(seen[0]).toContain('"side": "LONG"');
-    expect(seen[1]).toContain('"side": null');
-    expect(seen[1]).not.toContain('"side": "LONG"');
-    expect(seen[1]).toContain('MARKET');
-    expect(seen[1]).toContain('70000');
-    expect(out.verdict?.action).toBe('OPEN_SHORT');
-    expect(out.verdict?.thesis?.side).toBe('SHORT');
+    expect(seen[0]).toContain('"stop": "67000"');
+    expect(seen[1]).toContain('"stop": "67200"');
+    expect(out.verdict?.action).toBe('OPEN_LONG');
+    expect(out.verdict?.thesis?.side).toBe('LONG');
     expect(out.verdict?.thesis?.orderType).toBe('MARKET');
-    expect(out.verdict?.thesis?.stop).toBe('70000');
+    expect(out.verdict?.thesis?.stop).toBe('67200');
+    expect(out.verdict?.thesis?.tp).toBe('71500');
     expect(out.verdict?.thesis?.limitPrice).toBeNull();
     expect(out.verdict?.rejectionReason).toBeNull();
   });

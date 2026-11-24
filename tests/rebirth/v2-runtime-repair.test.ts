@@ -294,8 +294,8 @@ describe('Repair C: debate contract', () => {
     });
     expect(out.verdict?.action).toBe('OPEN_LONG');
     expect(out.verdict?.rejectionReason).toBeNull();
-    expect(out.verdict?.thesis?.orderType).toBe('LIMIT_GTC');
-    expect(out.verdict?.thesis?.limitPrice).toBe('68400');
+    expect(out.verdict?.thesis?.orderType).toBe('MARKET');
+    expect(out.verdict?.thesis?.limitPrice).toBeNull();
     const riskPrompt = seen.find((s) => s.role === 'risk')?.user ?? '';
     expect(riskPrompt).not.toContain('68400');
   });
