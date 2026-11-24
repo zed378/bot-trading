@@ -1,7 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RoleRunner } from '../../server/v2/agents/runner.js';
 import { CycleRunner } from '../../server/v2/decision/cycle.js';
