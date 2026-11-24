@@ -73,7 +73,7 @@ Jumlah ini menunjukkan bahwa Indodax saat ini adalah modul kecil di dalam sistem
 | Dokumen venue lain | `docs/venues.md`, `docs/setup/*`, `docs/live-trading.md`, `docs/grokbot-*.md`, `docs/muse-code.md`, `docs/channels.md`, `docs/external-agent-operations.md`, `docs/financial-history-capabilities.md`, `docs/local-mode.md` bagian venue | Diganti dokumen Indodax |
 | Dokumen riwayat | `AUDIT_FINDINGS.md`, `CODE_CHANGES.md`, `TEST_RESULTS.md`, `OPERATIONAL_COMPATIBILITY.md`, `docs/targeted-remediation-*.md`, `docs/rebirth/*`, `docs/qa/*`, `docs/evidence/*` | Dipindah ke tag git `pre-indodax-only` lalu dihapus dari cabang kerja. `CHANGELOG.md` dipertahankan sebagai sejarah |
 
-Daftar ini adalah hipotesis awal dari nama file dan impor. Tugas 0.2 menggantinya dengan daftar yang dibuktikan graf impor. Modul yang ternyata dipakai jalur Indodax pindah ke kolom Dipertahankan, bukan dipaksa hapus.
+Daftar ini adalah hipotesis awal dari nama file dan impor. Tugas 0.2 sudah dijalankan dan hasilnya ada di [inventaris](../plans/2026-11-24-indodax-only-inventory.md). Tujuh koreksi dicatat di bagian 3 inventaris dan dipakai di rencana tugas. Yang paling berpengaruh: sistem desk lama tidak terhubung ke jalur hidup sehingga aman dihapus lebih awal, tetapi `money.ts`, `strategy.ts`, `trading-settings.ts`, delapan adaptor venue, dan data pasar perpetual masih terhubung lewat `server/v2/runtime.ts` sehingga harus diputus dulu sebelum dihapus. Modul yang ternyata dipakai jalur Indodax pindah ke kolom Dipertahankan, bukan dipaksa hapus.
 
 ### 4.3 Keputusan Owner
 
