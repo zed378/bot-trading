@@ -4220,7 +4220,7 @@ export function createReplacementRuntime(
           signal: input.signal,
           routeForRole: (role) => assignments?.[role]?.route ?? 'LOCAL'
         });
-        const failures = out.roleResults
+        const failures = (out.roleResults ?? [])
           .filter((r) => r.status !== 'completed')
           .map((r) => `${r.role}: ${r.errorReason ?? r.status}`)
           .join('; ');
