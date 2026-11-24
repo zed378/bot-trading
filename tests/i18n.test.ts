@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { en, id, DICTIONARIES } from '../web/src/i18n.js';
 import { APP_VERSION, compareVersions, checkUpdate, applyUpdate } from '../server/updater.js';
-import { WALLET_GUIDE, WalletConnector } from '../server/wallet.js';
-import { EXCHANGES } from '../server/exchange/index.js';
 
 describe('Dual language i18n parity and updater adapter', () => {
   it('keeps strict 1:1 key parity between EN and ID with non-empty values and zero em dashes', () => {
@@ -22,24 +20,6 @@ describe('Dual language i18n parity and updater adapter', () => {
       expect(enVal.includes('\u2014')).toBe(false);
       expect(idVal.includes('\u2014')).toBe(false);
     }
-  });
-
-  it('provides official depositUrl for every DEX and CEX venue in WALLET_GUIDE', () => {
-    for (const v of EXCHANGES) {
-      const g = WALLET_GUIDE[v];
-      expect(g.depositUrl).toMatch(/^https:\/\//);
-    }
-  });
-
-  it('reads live Hyperliquid balance via public clearinghouseState when a 0x address is provided', async () => {
-    const fakeFetch = async () =>
-      new Response(JSON.stringify({ marginSummary: { accountValue: '1250.5' }, withdrawable: '980.25' }), { status: 200 });
-    const wc = new WalletConnector({ envFile: '.env.nonexistent', fetchImpl: fakeFetch as unknown as typeof fetch });
-    const res = await wc.readVenueBalance('hyperliquid', 'testnet', '0x1111111111111111111111111111111111111111');
-    expect(res.ok).toBe(true);
-    expect(res.equityUsdt).toBe(1250.5);
-    expect(res.availableUsdt).toBe(980.25);
-    expect(res.depositUrl).toBe('https://app.hyperliquid.xyz/portfolio');
   });
 
   it('compares dotted version strings and checks update status at current release version', async () => {

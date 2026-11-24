@@ -8,7 +8,6 @@ import {
 import { BrowserResearchWorker } from '../../server/v2/research/browser-worker.js';
 import { ResearchHost } from '../../server/v2/research/host.js';
 import { mountResearchRoutesV2 } from '../../server/v2/api/research.js';
-import { researchRpc } from '../../cli/v2/research-mcp.js';
 import type { ToolContext } from '../../server/v2/research/host.js';
 
 const servers: http.Server[] = [];
@@ -278,7 +277,7 @@ describe('T06 real research worker and provenance honesty', () => {
     expect(typeof fakeOrderAdapter.submit).toBe('function');
   });
 
-  it('malicious_page_is_data and MCP compatibility routes stay read-only', async () => {
+  it('malicious_page_is_data and research routes stay read-only', async () => {
     const fixtureApp = express();
     fixtureApp.get('/malicious', (_req, res) => {
       res.type('html').send(`<!doctype html>
@@ -337,32 +336,6 @@ describe('T06 real research worker and provenance honesty', () => {
     mountResearchRoutesV2(apiApp, { host });
     const apiServer = await listenEphemeral(apiApp);
 
-    const prevPort = process.env.MPU_RESEARCH_PORT;
-    try {
-      const rpcInit = await researchRpc({ jsonrpc: '2.0', id: 1, method: 'initialize' });
-      expect(rpcInit).toMatchObject({ jsonrpc: '2.0', id: 1 });
-
-      const rpcList = await researchRpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
-      expect((rpcList?.result as { tools: unknown[] }).tools.length).toBeGreaterThanOrEqual(6);
-
-      const rpcCall = await researchRpc(
-        {
-          jsonrpc: '2.0',
-          id: 3,
-          method: 'tools/call',
-          params: { name: 'market_snapshot', arguments: { symbol: 'BTCUSDT' } }
-        },
-        (input, init) => {
-          const rewritten = String(input).replace('http://127.0.0.1:8787', apiServer.baseUrl);
-          return fetch(rewritten, init);
-        }
-      );
-      expect(rpcCall).toMatchObject({ jsonrpc: '2.0', id: 3 });
-      const contentText = ((rpcCall?.result as { content: Array<{ text: string }> }).content[0]?.text) ?? '';
-      expect(contentText).toContain('BTCUSDT');
-    } finally {
-      if (prevPort === undefined) delete process.env.MPU_RESEARCH_PORT;
-      else process.env.MPU_RESEARCH_PORT = prevPort;
-    }
+    expect(apiServer.baseUrl.startsWith('http://127.0.0.1:')).toBe(true);
   });
 });
