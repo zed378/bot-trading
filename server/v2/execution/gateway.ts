@@ -937,7 +937,7 @@ export class ExecutionGateway {
   }
 
   /**
-   * Records external status projections (e.g. Grok callback trade.status / position.status)
+   * Records external status projections (e.g. external trade.status / position.status callbacks)
    * purely as audit events without performing any native order writes.
    */
   async recordExternalStatusObservation(params: {
