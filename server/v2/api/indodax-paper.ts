@@ -154,7 +154,8 @@ export function mountIndodaxPaper(app: express.Express, runtime: OfficeRuntime, 
       if (startingPositionEpoch !== positionEpoch) return;
       state.lastCycleAt = Date.now();
       const verdict = result?.status === 'completed' ? result.verdict : null;
-      state.lastAction = verdict?.rejectionReason ?? verdict?.action ?? (result ? `Agent cycle incomplete${result.failures ? ` (${result.failures})` : ''}` : 'Agent cycle is unavailable');
+      const callsNote = result?.providerCalls != null ? ` [${result.providerCalls} provider calls]` : '';
+      state.lastAction = `${verdict?.rejectionReason ?? verdict?.action ?? (result ? `Agent cycle incomplete${result.failures ? ` (${result.failures})` : ''}` : 'Agent cycle is unavailable')}${callsNote}`;
 
       const fresh = await client.market(state.symbol, '4h');
       if (!state.running || controller.signal.aborted || runtime.snapshot().killed || runtime.snapshot().mode !== 'PAPER' || Date.now() - fresh.observedAt > 60_000) return;

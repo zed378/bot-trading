@@ -58,6 +58,38 @@ export interface BaseRoleResult {
   proposedOrderType?: 'MARKET' | 'LIMIT_GTC' | null;
   proposedLimitPrice?: string | null;
   errorReason?: string | null;
+  providerCalls?: number;
+}
+
+export function parseRetryAfterMs(message: string): number | null {
+  const match = message.match(/retry-after\s+([^\s;)]+)/i);
+  if (!match?.[1]) return null;
+  const raw = match[1].trim();
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(30_000, Math.max(50, Math.round(seconds * 1000)));
+  }
+  const dateMs = Date.parse(raw);
+  if (Number.isFinite(dateMs)) {
+    const delta = dateMs - Date.now();
+    return delta > 0 ? Math.min(30_000, Math.max(50, delta)) : 50;
+  }
+  return null;
+}
+
+function sleepWithSignal(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 export interface RiskRoleResult extends BaseRoleResult {
@@ -242,11 +274,15 @@ export function getRoleSchemaInstruction(role: RoleId): string {
 export interface RoleRunnerOptions {
   providerCaller?: ProviderCaller;
   resolveAssignment: (role: RoleId, configVersion: number) => ProviderAssignment;
+  retryBaseDelayMs?: number;
+  maxRateLimitAttempts?: number;
 }
 
 export class RoleRunner {
   private readonly providerCaller: ProviderCaller;
   private readonly resolveAssignment: (role: RoleId, configVersion: number) => ProviderAssignment;
+  private readonly retryBaseDelayMs: number;
+  private readonly maxRateLimitAttempts: number;
   private readonly activeAttempts = new Map<string, { attempt: number; abort: AbortController }>();
   private readonly acceptedResults = new Map<string, RoleResult>();
   private readonly cycleOrder: string[] = [];
@@ -255,6 +291,8 @@ export class RoleRunner {
   constructor(options: RoleRunnerOptions) {
     this.providerCaller = options.providerCaller ?? createOfficialProviderCaller();
     this.resolveAssignment = options.resolveAssignment;
+    this.retryBaseDelayMs = Math.max(0, options.retryBaseDelayMs ?? 1000);
+    this.maxRateLimitAttempts = Math.max(1, Math.min(6, options.maxRateLimitAttempts ?? 4));
   }
 
   /** Direct owner chat uses the same typed provider route as strategy roles, without a trade side effect. */
@@ -344,7 +382,8 @@ export class RoleRunner {
     provider: string | null,
     model: string | null,
     toolTraceIds: string[],
-    reason: string
+    reason: string,
+    providerCalls = 0
   ): RoleResult {
     const confidence: ConfidenceReading = {
       value: null,
@@ -373,7 +412,8 @@ export class RoleRunner {
       provider,
       model,
       toolTraceIds,
-      errorReason: safe(reason)
+      errorReason: safe(reason),
+      providerCalls
     };
 
     if (task.role === 'risk') {
@@ -410,6 +450,7 @@ export class RoleRunner {
     const provider = assignment.provider.trim().toLowerCase();
     const model = assignment.model.trim();
     const toolTraceIds: string[] = [];
+    let providerCalls = 0;
 
     try {
       if (combinedSignal.aborted) {
@@ -446,8 +487,13 @@ export class RoleRunner {
         }
 
         let callError: unknown = null;
-        for (let attempt = 1; attempt <= 2; attempt++) {
+        for (let attempt = 1; attempt <= this.maxRateLimitAttempts; attempt++) {
+          const budgetLeft = Math.max(0, task.deadlineAt - Date.now());
+          if (budgetLeft <= 0 || combinedSignal.aborted) {
+            throw callError ?? new Error('Role task deadline reached before provider call');
+          }
           try {
+            providerCalls += 1;
             rawText = await this.providerCaller({
               cycleId: task.cycleId,
               role: task.role,
@@ -463,7 +509,7 @@ export class RoleRunner {
               user: userPrompt,
               retryReason: attempt > 1 ? 'output_limit' : undefined,
               signal: combinedSignal,
-              timeoutMs: remainingBudgetMs,
+              timeoutMs: budgetLeft,
               reasoningEffort: assignment.reasoningEffort,
               provenOsSandbox: assignment.provenOsSandbox
             });
@@ -472,10 +518,17 @@ export class RoleRunner {
           } catch (e) {
             callError = e;
             const msg = e instanceof Error ? e.message : String(e);
-            const isTransient = /empty output|token limit|timeout|fetch failed|rate limit|econnreset|503|502|429/i.test(msg);
-            if (attempt === 1 && isTransient && !combinedSignal.aborted) {
-              await new Promise((r) => setTimeout(r, 1000));
-              continue;
+            const isCapacityOrRate = /\b(429|503|502)\b|rate limit|all providers busy/i.test(msg);
+            const isTransient = isCapacityOrRate || /empty output|token limit|timeout|fetch failed|econnreset/i.test(msg);
+            const maxForThisError = isCapacityOrRate ? this.maxRateLimitAttempts : 2;
+            if (attempt < maxForThisError && isTransient && !combinedSignal.aborted) {
+              const retryAfterMs = parseRetryAfterMs(msg);
+              const backoffMs = this.retryBaseDelayMs * Math.pow(2, attempt - 1);
+              const waitMs = Math.min(retryAfterMs ?? backoffMs, Math.max(0, task.deadlineAt - Date.now() - 250));
+              if (waitMs > 0 || retryAfterMs === 0 || this.retryBaseDelayMs === 0) {
+                await sleepWithSignal(waitMs, combinedSignal);
+                continue;
+              }
             }
             throw e;
           }
@@ -512,6 +565,7 @@ export class RoleRunner {
       try {
         parsedJson = tryParseJson(rawText);
       } catch {
+        providerCalls += 1;
         const repairedRaw = await this.providerCaller({
           cycleId: task.cycleId,
           role: task.role,
@@ -702,7 +756,8 @@ export class RoleRunner {
         proposedTp: validated.data.proposedTp ?? null,
         proposedOrderType: validated.data.proposedOrderType ?? null,
         proposedLimitPrice: validated.data.proposedLimitPrice ?? null,
-        errorReason: null
+        errorReason: null,
+        providerCalls
       };
 
       const finalResult: RoleResult =
@@ -718,7 +773,7 @@ export class RoleRunner {
         this.activeAttempts.get(key)?.attempt !== task.taskAttempt ||
         (err instanceof Error && /cancelled/i.test(err.message))
       ) {
-        return this.makeEmptyResult(task, 'cancelled', provider, model, toolTraceIds, 'Task cancelled');
+        return this.makeEmptyResult(task, 'cancelled', provider, model, toolTraceIds, 'Task cancelled', providerCalls);
       }
       return this.makeEmptyResult(
         task,
@@ -726,7 +781,8 @@ export class RoleRunner {
         provider,
         model,
         toolTraceIds,
-        err instanceof Error ? err.message : 'Role task execution failed'
+        err instanceof Error ? err.message : 'Role task execution failed',
+        providerCalls
       );
     } finally {
       const current = this.activeAttempts.get(key);

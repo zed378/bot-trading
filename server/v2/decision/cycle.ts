@@ -65,6 +65,7 @@ export interface CycleResult {
     rejectionReason: string | null;
   } | null;
   roleResults: RoleResult[];
+  providerCalls?: number;
   jevReview: JevReview | null;
   jevReviewId: string | null;
   configVersion: number;
@@ -267,6 +268,12 @@ export class CycleRunner {
   }
 
   async run(input: RunCycleInput): Promise<CycleResult> {
+    const out = await this.runInternal(input);
+    const providerCalls = out.roleResults.reduce((sum, r) => sum + (r.providerCalls ?? 1), 0);
+    return { ...out, providerCalls };
+  }
+
+  private async runInternal(input: RunCycleInput): Promise<CycleResult> {
     const cycleId = input.cycleId ?? `cycle-${randomUUID()}`;
     const deadlineAt = Date.now() + (input.deadlineMs ?? 360_000);
     const routeOf = (role: RoleId): RoleRoute => input.routeForRole?.(role) ?? 'LOCAL';

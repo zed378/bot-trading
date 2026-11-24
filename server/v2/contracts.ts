@@ -259,6 +259,7 @@ export interface OfficeRuntime {
       rejectionReason: string | null;
     } | null;
     failures?: string;
+    providerCalls?: number;
   }>;
   updateAutoSettings?(patch: Record<string, unknown>): OfficeState;
   updateState?(mutator: (draft: OfficeState) => OfficeState | void): OfficeState;

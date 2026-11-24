@@ -1481,7 +1481,7 @@ export function createReplacementRuntime(
       const res = await runIndodaxCycle({ ...input, reason: 'schedule' });
       if (!res) return { status: 'cancelled' as const, verdict: null };
       if (!res.out) return { status: 'incomplete' as const, verdict: null };
-      return { status: res.out.status, verdict: toIndodaxVerdict(res.out, input.symbol), failures: res.failures };
+      return { status: res.out.status, verdict: toIndodaxVerdict(res.out, input.symbol), failures: res.failures, providerCalls: res.out.providerCalls };
     },
     updateAutoSettings,
     handleCommand,
