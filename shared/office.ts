@@ -374,13 +374,13 @@ export interface DeskState {
     limitations: string[];
   }>;
   trading?: {
-    network: 'testnet' | 'mainnet' | null;
+    network: 'mainnet' | null;
     profile: TradingProfile;
     values: TradingSettingsDto;
   };
   app: string;
-  mode: 'PAPER' | 'TESTNET' | 'LIVE';
-  appMode: 'local' | 'grokbot';
+  mode: 'PAPER' | 'LIVE';
+  appMode: 'local';
   marketSource: string;
   bridgeEnabled: boolean;
   paused: boolean;

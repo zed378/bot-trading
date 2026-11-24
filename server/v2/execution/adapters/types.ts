@@ -12,25 +12,11 @@ import {
 import { compareDecimals, divDecimals, mulDecimals, quantize } from '../decimal.js';
 
 export const VENUE_STATUS: Record<Venue, 'implemented' | 'experimental'> = {
-  bybit: 'implemented',
-  binance: 'experimental',
-  okx: 'experimental',
-  hyperliquid: 'experimental',
-  aster: 'experimental',
-  dydx: 'experimental',
-  paradex: 'experimental',
-  orderly: 'experimental'
+  indodax: 'implemented'
 };
 
 export const VENUE_LABELS: Record<Venue, string> = {
-  bybit: 'Bybit',
-  binance: 'Binance',
-  okx: 'OKX',
-  hyperliquid: 'Hyperliquid',
-  aster: 'Aster',
-  dydx: 'dYdX v4',
-  paradex: 'Paradex',
-  orderly: 'Orderly'
+  indodax: 'Indodax'
 };
 
 export interface DelegatedCredentials {

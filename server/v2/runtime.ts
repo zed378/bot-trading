@@ -55,37 +55,15 @@ export class StartupValidationError extends Error {
 }
 
 const VENUE_PREFIX: Record<VenueId, string> = {
-  bybit: 'BYBIT',
-  binance: 'BINANCE',
-  okx: 'OKX',
-  hyperliquid: 'HYPERLIQUID',
-  aster: 'ASTER',
-  dydx: 'DYDX',
-  paradex: 'PARADEX',
-  orderly: 'ORDERLY'
+  indodax: 'INDODAX'
 };
 
 export function venueCredentialEnvNames(
   venue: VenueId,
-  network: Network
+  _network: Network = 'mainnet'
 ): { key: string; secret: string; passphrase?: string } {
-  const prefix = VENUE_PREFIX[venue] + (network === 'testnet' ? '_TESTNET' : '');
-  switch (venue) {
-    case 'hyperliquid':
-      return { key: `${prefix}_ACCOUNT_ADDRESS`, secret: `${prefix}_AGENT_PRIVATE_KEY` };
-    case 'aster':
-      return { key: `${prefix}_USER_ADDRESS`, secret: `${prefix}_SIGNER_PRIVATE_KEY` };
-    case 'dydx':
-      return { key: `${prefix}_ADDRESS`, secret: `${prefix}_API_PRIVATE_KEY`, passphrase: `${prefix}_AUTHENTICATOR_ID` };
-    case 'paradex':
-      return { key: `${prefix}_ACCOUNT_ADDRESS`, secret: `${prefix}_SUBKEY_PRIVATE_KEY` };
-    case 'orderly':
-      return { key: `${prefix}_ACCOUNT_ID`, secret: `${prefix}_KEY_SECRET` };
-    case 'okx':
-      return { key: `${prefix}_API_KEY`, secret: `${prefix}_API_SECRET`, passphrase: `${prefix}_API_PASSPHRASE` };
-    default:
-      return { key: `${prefix}_API_KEY`, secret: `${prefix}_API_SECRET` };
-  }
+  const prefix = VENUE_PREFIX[venue];
+  return { key: `${prefix}_API_KEY`, secret: `${prefix}_API_SECRET` };
 }
 
 export interface StartupEnvCheck {
@@ -111,7 +89,7 @@ export function resolveEffectiveSafetyNet(
     };
   }
 
-  const networkKey = network === 'mainnet' ? 'MAINNET_DESK_SAFETY_NET' : network === 'testnet' ? 'TESTNET_DESK_SAFETY_NET' : null;
+  const networkKey = network === 'mainnet' ? 'MAINNET_DESK_SAFETY_NET' : null;
   const netRaw = networkKey ? env[networkKey] : undefined;
   if (netRaw !== undefined && netRaw.trim() !== '') {
     const parsed = Number(netRaw.trim());
@@ -148,9 +126,9 @@ export function resolveEffectiveSafetyNet(
 
 export function validateStartupEnvironment(env: NodeJS.ProcessEnv = process.env): StartupEnvCheck {
   const rawMode = (env.TRADING_MODE ?? 'PAPER').trim().toUpperCase();
-  if (rawMode !== 'PAPER' && rawMode !== 'TESTNET' && rawMode !== 'LIVE') {
+  if (rawMode !== 'PAPER' && rawMode !== 'LIVE') {
     throw new StartupValidationError(
-      `TRADING_MODE is "${rawMode}". Use PAPER (default), TESTNET or LIVE. Refusing to start.`,
+      `TRADING_MODE is "${rawMode}". Use PAPER (default) or LIVE. Refusing to start.`,
       2
     );
   }
@@ -169,26 +147,11 @@ export function validateStartupEnvironment(env: NodeJS.ProcessEnv = process.env)
       2
     );
   }
-  const venue = rawVenue && rawVenue !== 'none' ? (rawVenue as VenueId) : null;
-  const network: Network | null =
-    tradingMode === 'LIVE' ? 'mainnet' : tradingMode === 'TESTNET' ? 'testnet' : null;
+  const venue = rawVenue && rawVenue !== 'none' ? (rawVenue as VenueId) : 'indodax';
+  const network: Network | null = tradingMode === 'LIVE' ? 'mainnet' : null;
 
   if (network) {
     const reasons: string[] = [];
-    if (!venue) {
-      reasons.push('EXCHANGE is not set');
-    } else {
-      const names = venueCredentialEnvNames(venue, network);
-      const key = (env[names.key] ?? '').trim();
-      const secret = (env[names.secret] ?? '').trim();
-      const passphrase = names.passphrase ? (env[names.passphrase] ?? '').trim() : 'ok';
-      if (!key || !secret || !passphrase) {
-        reasons.push(`${network} ${venue} keys are missing in .env`);
-      }
-      if (tradingMode === 'LIVE' && venue !== 'bybit' && (env.ALLOW_EXPERIMENTAL_LIVE ?? '').trim() !== 'yes') {
-        reasons.push(`the ${venue} adapter is experimental and unverified; LIVE on it needs ALLOW_EXPERIMENTAL_LIVE=yes`);
-      }
-    }
     const resolvedSafety = resolveEffectiveSafetyNet(env, network);
     if (resolvedSafety.value < 0) {
       reasons.push(`SAFETY_NET cannot be negative (resolved ${resolvedSafety.value} from ${resolvedSafety.source})`);
@@ -311,120 +274,6 @@ export function ownerAllocationPerOrder(
   return 0;
 }
 
-export function verifiedVenueStop(input: {
-  protectionState?: string | null;
-  stopPrice?: string | null;
-}): { stop: number; protectionStatus: 'confirmed' | 'missing' | 'unknown' } {
-  if (input.protectionState === 'VERIFIED') {
-    const stop = Number(input.stopPrice);
-    if (Number.isFinite(stop) && stop > 0) return { stop, protectionStatus: 'confirmed' };
-    return { stop: 0, protectionStatus: 'unknown' };
-  }
-  if (input.protectionState === 'MISSING') return { stop: 0, protectionStatus: 'missing' };
-  return { stop: 0, protectionStatus: 'unknown' };
-}
-
-export interface CrossMarketBreadth {
-  regime: 'SYSTEMIC_RISK_OFF' | 'SYSTEMIC_RISK_ON' | 'BALANCED_CHOP';
-  marketCondition?: 'BROAD_SELLOFF' | 'BROAD_RALLY' | 'MIXED';
-  bearishCount: number;
-  bullishCount: number;
-  highRelVolCount: number;
-  avgChange15m?: number;
-  avgChange24h?: number;
-  summary: string;
-  details?: Record<string, { change15m?: number; relVol15m?: number; trend15m?: string }>;
-}
-
-export function computeCrossMarketBreadth(
-  tickers: Record<string, { last?: number; change15m?: number; relVol15m?: number; trend15m?: string; change24hPct?: number }>,
-  symbols: string[]
-): CrossMarketBreadth {
-  let bearishCount = 0;
-  let bullishCount = 0;
-  let highRelVolCount = 0;
-  let sumChange15m = 0;
-  let countChange15m = 0;
-  let sumChange24h = 0;
-  let countChange24h = 0;
-  const details: Record<string, { change15m?: number; relVol15m?: number; trend15m?: string }> = {};
-
-  const activeSymbols = symbols.filter((s) => Boolean(tickers[s]));
-  const symbolsToEvaluate = activeSymbols.length > 0 ? activeSymbols : symbols;
-  const total = symbolsToEvaluate.length;
-
-  for (const sym of symbolsToEvaluate) {
-    const t = tickers[sym];
-    if (!t) continue;
-    const change = t.change15m ?? t.change24hPct ?? 0;
-    if (t.change15m !== undefined && Number.isFinite(t.change15m)) {
-      sumChange15m += t.change15m;
-      countChange15m++;
-    }
-    if (t.change24hPct !== undefined && Number.isFinite(t.change24hPct)) {
-      sumChange24h += t.change24hPct;
-      countChange24h++;
-    }
-    const relVol = t.relVol15m ?? 1.0;
-    const trend = t.trend15m ?? (change < 0 ? 'DOWNTREND' : change > 0 ? 'UPTREND' : 'SIDEWAYS');
-
-    details[sym] = {
-      change15m: t.change15m,
-      relVol15m: t.relVol15m,
-      trend15m: trend
-    };
-
-    const isBearish = change < 0 || trend === 'DOWNTREND';
-    const isBullish = change > 0 || trend === 'UPTREND';
-    const isHighVol = relVol >= 2.0;
-
-    if (isBearish) bearishCount++;
-    else if (isBullish) bullishCount++;
-
-    if (isHighVol) highRelVolCount++;
-  }
-
-  const avgChange15m = countChange15m > 0 ? Math.round((sumChange15m / countChange15m) * 100) / 100 : 0;
-  const avgChange24h = countChange24h > 0 ? Math.round((sumChange24h / countChange24h) * 100) / 100 : 0;
-
-  let regime: 'SYSTEMIC_RISK_OFF' | 'SYSTEMIC_RISK_ON' | 'BALANCED_CHOP' = 'BALANCED_CHOP';
-  let marketCondition: 'BROAD_SELLOFF' | 'BROAD_RALLY' | 'MIXED' = 'MIXED';
-  let summary = `Market regime balanced or mixed (${bullishCount} bull, ${bearishCount} bear).`;
-
-  const isBroadSelloff = total > 0 && (bearishCount >= Math.ceil(total * 0.6) || avgChange15m <= -1.5);
-  const isBroadRally = total > 0 && (bullishCount >= Math.ceil(total * 0.6) || avgChange15m >= 1.5);
-
-  if (isBroadSelloff) {
-    marketCondition = 'BROAD_SELLOFF';
-    if (highRelVolCount >= Math.floor(total * 0.4)) {
-      regime = 'SYSTEMIC_RISK_OFF';
-      summary = `Systemic risk-off detected: ${bearishCount}/${total} symbols dropping with expanding volume.`;
-    } else {
-      summary = `Broad sell-off detected: ${bearishCount}/${total} symbols dropping (avg 15m: ${avgChange15m}%).`;
-    }
-  } else if (isBroadRally) {
-    marketCondition = 'BROAD_RALLY';
-    if (highRelVolCount >= Math.floor(total * 0.4)) {
-      regime = 'SYSTEMIC_RISK_ON';
-      summary = `Systemic risk-on detected: ${bullishCount}/${total} symbols rising with expanding volume.`;
-    } else {
-      summary = `Broad rally detected: ${bullishCount}/${total} symbols rising (avg 15m: ${avgChange15m}%).`;
-    }
-  }
-
-  return {
-    regime,
-    marketCondition,
-    bearishCount,
-    bullishCount,
-    highRelVolCount,
-    avgChange15m,
-    avgChange24h,
-    summary,
-    details
-  };
-}
-
 export function createReplacementRuntime(
   options: ReplacementRuntimeOptions = {}
 ): ReplacementRuntimeHandle {
@@ -504,7 +353,7 @@ export function createReplacementRuntime(
 
   const resolvedSafety = resolveEffectiveSafetyNet(
     env,
-    state.mode === 'LIVE' ? 'mainnet' : state.mode === 'TESTNET' ? 'testnet' : null,
+    state.mode === 'LIVE' ? 'mainnet' : null,
     savedTrading?.safetyNet ?? savedPaper?.safetyNet
   );
   const initSafety = resolvedSafety.value >= 0 ? resolvedSafety.value : 200;
@@ -587,8 +436,8 @@ export function createReplacementRuntime(
   const tvWidget = ['1', 'on', 'yes', 'true'].includes((env.TRADINGVIEW_WIDGET ?? '').trim().toLowerCase());
   const tvPass = (env.TRADINGVIEW_PASSPHRASE ?? '').trim();
   const tvWebhook = ['1', 'on', 'yes', 'true'].includes((env.TRADINGVIEW_WEBHOOK ?? '').trim().toLowerCase()) || Boolean(tvPass);
-  const rawTvPrefix = (env.TRADINGVIEW_EXCHANGE_PREFIX ?? env.TRADINGVIEW_PREFIX ?? 'BYBIT').trim();
-  const tvPrefix = rawTvPrefix.replace(/:+$/, '') || 'BYBIT';
+  const rawTvPrefix = (env.TRADINGVIEW_EXCHANGE_PREFIX ?? env.TRADINGVIEW_PREFIX ?? 'INDODAX').trim();
+  const tvPrefix = rawTvPrefix.replace(/:+$/, '') || 'INDODAX';
   state.tradingview = {
     widget: tvWidget,
     prefix: tvPrefix,
@@ -1336,7 +1185,7 @@ export function createReplacementRuntime(
           '🧭 DESK MODE & VENUE',
           '────────',
           `Mode: ${snap.mode}`,
-          `Venue: ${snap.venue?.label ?? snap.venue?.name ?? 'bybit'}`,
+          `Venue: ${snap.venue?.label ?? snap.venue?.name ?? 'indodax'}`,
           `Trading: ${snap.killed ? 'STOPPED (kill switch)' : snap.paused ? 'PAUSED' : 'ACTIVE'}`,
           `Auto: ${snap.auto.on ? `ON (every ${snap.auto.intervalMin}m)` : 'OFF'}`
         ].join('\n')

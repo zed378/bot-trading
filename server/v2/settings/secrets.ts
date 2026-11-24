@@ -20,29 +20,9 @@ export const PROVIDER_KEY_ENV: Record<ApiProviderId, string> = {
 };
 
 const EXTRA_SECRET_ENV_NAMES = [
-  'AGENT_EVENT_SECRET',
-  'GROKBOT_WEBHOOK_KEY',
-  'GROK_BRIDGE_HMAC_SECRET',
-  'TRADINGVIEW_PASSPHRASE',
-  'CRYPTOPANIC_API_KEY',
-  'WHALE_ALERT_API_KEY',
-  'CMC_API_KEY',
-  'COINGLASS_API_KEY',
-  'TREE_OF_ALPHA_API_KEY',
-  'ARKHAM_API_KEY',
-  'FRED_API_KEY',
   'JEV_OPENROUTER_API_KEY',
-  'TELEGRAM_BOT_TOKEN',
-  'DISCORD_BOT_TOKEN',
-  'DISCORD_PUBLIC_KEY',
-  'SLACK_BOT_TOKEN',
-  'SLACK_SIGNING_SECRET',
-  'WHATSAPP_ACCESS_TOKEN',
-  'WHATSAPP_APP_SECRET',
-  'WHATSAPP_VERIFY_TOKEN'
+  'TELEGRAM_BOT_TOKEN'
 ] as const;
-
-const PUBLIC_ADDRESS_VENUES = new Set<VenueId>(['hyperliquid', 'aster', 'dydx', 'paradex', 'orderly']);
 
 function parseEnvContent(content: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -121,14 +101,11 @@ export class SecretStore {
     for (const venue of EXCHANGES) {
       for (const net of NETWORKS) {
         const names = venueCredentialEnvNames(venue, net);
-        if (!PUBLIC_ADDRESS_VENUES.has(venue) && env[names.key]) {
+        if (env[names.key]) {
           sensitive.push(env[names.key]!);
         }
         if (env[names.secret]) {
           sensitive.push(env[names.secret]!);
-        }
-        if (names.passphrase && venue !== 'dydx' && env[names.passphrase]) {
-          sensitive.push(env[names.passphrase]!);
         }
       }
     }
@@ -205,7 +182,6 @@ export class SecretStore {
     const venuesConfigured = {} as Record<VenueId, Record<Network, boolean>>;
     for (const venue of EXCHANGES) {
       venuesConfigured[venue] = {
-        testnet: this.hasVenueCredentials(venue, 'testnet'),
         mainnet: this.hasVenueCredentials(venue, 'mainnet')
       };
     }

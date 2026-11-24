@@ -158,7 +158,7 @@ export function resolveTradingPresetValues(
 
 export const PreferencesBody = z
   .object({
-    appMode: z.enum(['local', 'grokbot']),
+    appMode: z.enum(['local']),
     balance: z.number().finite().nonnegative(),
     safetyNet: z.number().finite().nonnegative(),
     n: z.number().int().min(1).max(100),
@@ -178,7 +178,7 @@ export const RoleAgentConfigSchema = z
     provider: z.enum(MODEL_PROVIDERS),
     model: z.string().min(1),
     reasoning: z.enum(REASONING_LEVELS).optional(),
-    route: z.enum(['LOCAL', 'GROK', 'MIRROR_READ_ONLY']).default('LOCAL')
+    route: z.enum(['LOCAL']).default('LOCAL')
   })
   .strict();
 
@@ -229,7 +229,7 @@ export const PreferencesSettingsSchema = z
     currency: z.enum(['USD', 'IDR']).default('USD'),
     tradingviewWidget: z.boolean().default(false),
     tradingviewWebhook: z.boolean().default(false),
-    tradingviewPrefix: z.string().min(1).max(30).default('BYBIT'),
+    tradingviewPrefix: z.string().min(1).max(30).default('INDODAX'),
     debateMode: z.enum(['normal', 'fast']).default('normal'),
     fightThreshold: z.number().finite().min(0.05).max(1).default(0.35)
   })
@@ -240,9 +240,6 @@ export const ChannelsSettingsSchema = z
     commandsEnabled: z.boolean().default(false),
     supervisorIntervalMin: z.number().int().min(1).max(1440).default(10),
     telegramEnabled: z.boolean().default(false),
-    discordEnabled: z.boolean().default(false),
-    slackEnabled: z.boolean().default(false),
-    whatsappEnabled: z.boolean().default(false),
     ownerAllowlist: z.array(z.string().min(1).max(120)).default([])
   })
   .strict();
@@ -250,9 +247,7 @@ export const ChannelsSettingsSchema = z
 export const VenueSelectionSchema = z
   .object({
     exchange: z.enum(EXCHANGES).nullable(),
-    network: z.enum(NETWORKS).nullable(),
-    allowExperimentalLive: z.boolean().default(false),
-    asterEntryOrderType: z.enum(['MARKET', 'LIMIT_GTC']).default('MARKET')
+    network: z.enum(NETWORKS).nullable()
   })
   .strict();
 
@@ -264,7 +259,6 @@ export const OwnerSettingsSchema = z
     trading: TradingSettingsSchema,
     networkProfiles: z
       .object({
-        testnet: TradingSettingsSchema.optional(),
         mainnet: TradingSettingsSchema.optional()
       })
       .strict()
@@ -300,7 +294,6 @@ export const OwnerSettingsPatchSchema = z
     trading: TradingFields.partial().optional(),
     networkProfiles: z
       .object({
-        testnet: TradingFields.partial().optional(),
         mainnet: TradingFields.partial().optional()
       })
       .strict()

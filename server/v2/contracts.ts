@@ -23,17 +23,17 @@ export type {
 export const ROLE_IDS = ['lead', 'market', 'research', 'strategist', 'risk', 'execution'] as const;
 export type RoleId = (typeof ROLE_IDS)[number];
 
-export const TRADING_MODES = ['PAPER', 'TESTNET', 'LIVE'] as const;
+export const TRADING_MODES = ['PAPER', 'LIVE'] as const;
 export type TradingMode = (typeof TRADING_MODES)[number];
 
-export const APP_MODES = ['local', 'grokbot'] as const;
+export const APP_MODES = ['local'] as const;
 export type AppMode = (typeof APP_MODES)[number];
 
-export const EXCHANGES = ['bybit', 'binance', 'okx', 'hyperliquid', 'aster', 'dydx', 'paradex', 'orderly'] as const;
+export const EXCHANGES = ['indodax'] as const;
 export type Venue = (typeof EXCHANGES)[number];
 export type VenueId = Venue;
 
-export const NETWORKS = ['testnet', 'mainnet'] as const;
+export const NETWORKS = ['mainnet'] as const;
 export type Network = (typeof NETWORKS)[number];
 
 export const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'] as const;
@@ -153,8 +153,8 @@ export interface MarketFrame {
   evidenceId: string;
   revision: number;
   symbol: string;
-  venue: 'bybit';
-  category: 'linear';
+  venue: 'indodax';
+  category: 'spot';
   asOf: number;
   last: Evidence<DecimalString>;
   bid: Evidence<DecimalString>;

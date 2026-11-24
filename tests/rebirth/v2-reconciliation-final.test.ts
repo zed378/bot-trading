@@ -8,7 +8,7 @@ import { ExecutionAuthorityService } from '../../server/v2/accounts/authority.js
 import { CycleRunner } from '../../server/v2/decision/cycle.js';
 import { reconcileAccountState, type ReconcileVenueTransport } from '../../server/v2/execution/reconcile.js';
 import { appendKillAudit, readKill, writeKill } from '../../server/v2/kill-file.js';
-import { ownerAllocationPerOrder, verifiedVenueStop } from '../../server/v2/runtime.js';
+import { ownerAllocationPerOrder } from '../../server/v2/runtime.js';
 import { RuntimeStore } from '../../server/v2/store/database.js';
 
 const tempDirs: string[] = [];
@@ -386,21 +386,6 @@ describe('opposite-side candidate', () => {
     expect(out.verdict?.thesis?.stop).toBe('70000');
     expect(out.verdict?.thesis?.limitPrice).toBeNull();
     expect(out.verdict?.rejectionReason).toBeNull();
-  });
-});
-
-describe('verified stop price', () => {
-  it('confirms only a positive native readback and ignores a synthetic percent', () => {
-    expect(verifiedVenueStop({ protectionState: 'VERIFIED', stopPrice: '67000' })).toEqual({
-      stop: 67000,
-      protectionStatus: 'confirmed'
-    });
-    expect(verifiedVenueStop({ protectionState: 'MISSING', stopPrice: '65000' })).toEqual({
-      stop: 0,
-      protectionStatus: 'missing'
-    });
-    expect(verifiedVenueStop({ protectionState: null, stopPrice: null }).stop).toBe(0);
-    expect(verifiedVenueStop({ protectionState: 'VERIFIED', stopPrice: null }).protectionStatus).not.toBe('confirmed');
   });
 });
 

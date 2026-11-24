@@ -408,7 +408,7 @@ export class ExecutionGateway {
           filledQty: '0',
           protectionState: 'NOT_APPLICABLE',
           certainty: null,
-          reason: 'Fresh Bybit linear market price is unavailable under lock'
+          reason: 'Fresh spot market price is unavailable under lock'
         };
       }
 

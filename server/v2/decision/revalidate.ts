@@ -97,7 +97,7 @@ export function revalidateEntry(input: RevalidateEntryInput): EntryValidation {
   if (freshMarket.last.availability !== 'AVAILABLE' || freshMarket.last.value === null) {
     return {
       status: 'unavailable',
-      reason: freshMarket.last.reason ?? 'Canonical Bybit linear last price is unavailable',
+      reason: freshMarket.last.reason ?? 'Canonical spot last price is unavailable',
       evidenceRefs: baseRefs
     };
   }

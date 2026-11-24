@@ -53,7 +53,7 @@ export class PaperVenue implements VenueAdapter {
     if (options.liveCredential) {
       throw new AdapterCapabilityError('PaperVenue refuses live keys and signing credentials.');
     }
-    this.venue = options.venue ?? 'bybit';
+    this.venue = options.venue ?? 'indodax';
     this.network = options.network ?? 'mainnet';
     this.equity = options.initialBalance ?? '1000';
     this.availableBalance = this.equity;

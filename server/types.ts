@@ -60,94 +60,6 @@ export interface OrderbookSummary {
   asks?: [number, number][];
 }
 
-export interface OrderflowSummary {
-  requestedVenue?: string;
-  actualDataVenue?: string;
-  dataType?: string;
-  sourceEndpoint?: string;
-  evidence?: MeasurementEvidence;
-  takerBuyVol: number;
-  takerSellVol: number;
-  cvdDelta: number;
-  buySellRatio: number | null;
-  deltaDivergence: boolean;
-  tradesCount?: number;
-}
-
-export interface DerivativesSummary {
-  evidence?: Record<string, MeasurementEvidence>;
-  fundingRate: number | null;
-  predictedFunding: number | null;
-  openInterest: number | null;
-  oiDelta15mPct: number | null;
-  oiDelta1hPct: number | null;
-  oiDelta4hPct: number | null;
-  spotPerpBasisBps: number | null;
-  multiVenueFunding?: Record<string, { fundingRate: number | null; openInterest?: number | null }>;
-  liquidations24hUsd?: number | null;
-  liquidationClusters?: Array<{ price: number; estimatedVolUsd: number; side: 'LONG' | 'SHORT' }>;
-}
-
-export interface TechnicalSummary {
-  derivation?: Record<string, string>;
-  mtfTrend: Record<'5m' | '15m' | '1h' | '4h', {
-    ema9: number;
-    ema21: number;
-    ema50: number;
-    ema200: number | null;
-    regime: 'STRONG_UPTREND' | 'STRONG_DOWNTREND' | 'RANGING_CHOP' | 'SQUEEZE_BREAKOUT';
-  } | null>;
-  volatility: {
-    atr14: number;
-    atrPct: number;
-    realizedVol24h: number | null;
-    realizedVol24hBasis?: string;
-    bollingerBandWidthPct: number;
-  } | null;
-  momentum: {
-    rsi14_15m: number | null;
-    rsi14_1h: number | null;
-    rsi14_4h: number | null;
-  };
-  volumeProfile: {
-    sessionVwap: number;
-    poc: number;
-    vah: number;
-    val: number;
-  } | null;
-  swingLevels: {
-    recentSwingHigh: number;
-    recentSwingLow: number;
-    distToLiquiditySweepPct: number;
-  } | null;
-}
-
-export interface WhaleOnChainSummary {
-  hyperliquidWhales?: {
-    coverageStatus?: string;
-    coverageNote?: string;
-    evidence?: MeasurementEvidence;
-    walletsChecked?: number;
-    walletsRequested?: number;
-    longCount: number;
-    shortCount: number;
-    avgLongNotional: number;
-    avgShortNotional: number;
-    totalUnrealizedPnl: number;
-    topPositions?: Array<{ address: string; side: 'LONG' | 'SHORT'; notional: number; pnl: number }>;
-  };
-  deribitMacro?: {
-    evidence?: Record<string, MeasurementEvidence>;
-    currency?: string;
-    putCallRatioBasis?: 'open_interest';
-    dvol: number | null;
-    putCallRatio: number | null;
-    indexPrice: number | null;
-  };
-  newsWire?: NewsItem[];
-  arkhamAlerts?: Array<{ id: string; summary: string; timestamp: number }>;
-}
-
 export interface MarketSnapshot {
   collectorStartedAt?: number;
   collectorEndedAt?: number;
@@ -155,42 +67,14 @@ export interface MarketSnapshot {
   snapshotId?: string;
   evidence?: Record<string, MeasurementEvidence>;
   symbol: string;
-  source: 'bybit' | 'binance' | 'hyperliquid' | 'aster' | 'dydx' | 'paradex' | 'orderly' | 'sample';
+  source: 'indodax' | 'sample';
   example: boolean;
   last: number;
   change24hPct: number;
-  fundingRate: number | null;
   bid: number | null;
   ask: number | null;
-  candles: Candle[]; // closed 15m bars, oldest first
+  candles: Candle[];
   fetchedAt: number;
-  orderbook?: OrderbookSummary | null;
-  orderflow?: OrderflowSummary | null;
-  derivatives?: DerivativesSummary | null;
-  technicalSummary?: TechnicalSummary | null;
-  whaleOnChain?: WhaleOnChainSummary | null;
-}
-
-export interface NewsItem {
-  eventAt?: number | null;
-  windowStartAt?: number | null;
-  windowEndAt?: number | null;
-  metric?: { value: number; unit: string; scope: string; windowHours?: number };
-  observedAt?: number;
-  affectedAssets?: string[];
-  eventCategory?: string;
-  evidenceStatus?: string;
-  provider?: 'cryptopanic' | 'bybit' | 'sample';
-  id: string;
-  symbol: string;
-  headline: string;
-  body: string;
-  source: string;
-  sentiment: 'bullish' | 'bearish' | 'neutral' | 'severe';
-  example: boolean;
-  flagged?: boolean;
-  publishedAt?: number | null;
-  sourceUrl?: string | null;
 }
 
 export interface Position {
