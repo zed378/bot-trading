@@ -9,7 +9,8 @@ export const pairOf = (symbol: string): IndodaxPair => {
 
 /** Offline Indodax client: lists the given pairs and serves a flat, closed 4h market for each. */
 export class FakeIndodaxClient extends IndodaxPublicClient {
-  constructor(readonly listed: string[] = ['BTCIDR', 'BTCUSDT'], private readonly observedAt = Date.now()) { super(); }
+  constructor(readonly listed: string[] = ['BTCIDR', 'BTCUSDT'], private readonly observedAt = Date.now(), private bid = '99') { super(); }
+  setBid(bid: string) { this.bid = bid; }
   async pairs() { return this.listed.map(pairOf); }
   async market(input: string): Promise<IndodaxMarket> {
     const symbol = input.toUpperCase();
@@ -17,7 +18,7 @@ export class FakeIndodaxClient extends IndodaxPublicClient {
     const candles = Array.from({ length: 60 }, (_, i) => ({ time: 1_700_000_000 + i * 14_400, open: '100', high: '102', low: '98', close: '100', volume: '10' }));
     return {
       venue: 'indodax', marketType: 'spot', access: 'public-read-only', executionSupported: false, example: false,
-      pair: pairOf(symbol), timeframe: '4h', last: '100', bid: '99', ask: '101', observedAt: this.observedAt, candles,
+      pair: pairOf(symbol), timeframe: '4h', last: '100', bid: this.bid, ask: '101', observedAt: Date.now(), candles,
       sources: { ticker: 'x', book: 'x', candles: 'x', pairs: 'x' }
     };
   }

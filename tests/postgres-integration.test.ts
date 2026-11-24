@@ -163,4 +163,26 @@ describe.runIf(process.env.TEST_POSTGRES === '1')('real PostgreSQL 18 in Docker'
       await controller.stop(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
     }
   });
+  it('rejects every LIVE stop action that lacks the exact typed confirmation', async () => {
+    const { schema } = await database(), dir = await mkdtemp(path.join(os.tmpdir(), 'mpu-live-phrase-')); tempDirs.push(dir);
+    const master = path.join(dir, 'master'); await writeFile(master, randomBytes(32).toString('base64'), { mode: 0o600 });
+    const env = { ...process.env, INDODAX_STOP_SCHEMA: schema, CREDENTIAL_MASTER_KEY_FILE: master };
+    const account = vi.fn(), sell = vi.fn();
+    const app = express(); app.use(express.json());
+    const controller = mountIndodaxStopRoutes(app, { env, exchangeFactory: () => ({ account, sell, pair: vi.fn(), quote: vi.fn(), lookup: vi.fn() }) });
+    const server = createServer(app); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const post = (url: string, body: unknown) => fetch(base + url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    try {
+      for (const confirmation of [undefined, '', 'i understand live trades real money', 'I understand LIVE trades real money.']) {
+        const extra = confirmation === undefined ? {} : { confirmation };
+        expect((await post('/api/indodax/stops/arm', { symbol: 'BTCIDR', quantity: '1', entry: '100', stop: '90', mode: 'LIVE', ...extra })).status).toBe(400);
+        expect((await post('/api/indodax/stops/disarm', { symbol: 'BTCIDR', mode: 'LIVE', ...extra })).status).toBe(400);
+        expect((await post('/api/indodax/stops/watch', { mode: 'LIVE', ...extra })).status).toBe(400);
+      }
+      expect(account).not.toHaveBeenCalled(); expect(sell).not.toHaveBeenCalled();
+    } finally {
+      await controller.stop(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
 });
