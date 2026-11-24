@@ -41,7 +41,6 @@ export interface ConversationSummary {
 }
 
 export interface OrderbookSummary {
-  provenance?: import('./market/provenance.js').FeedProvenance;
   bidObservedCoveragePct?: number;
   askObservedCoveragePct?: number;
   maxObservedCoveragePct?: number;
@@ -62,7 +61,6 @@ export interface OrderbookSummary {
 }
 
 export interface OrderflowSummary {
-  provenance?: import('./market/provenance.js').FeedProvenance;
   requestedVenue?: string;
   actualDataVenue?: string;
   dataType?: string;
@@ -153,8 +151,6 @@ export interface WhaleOnChainSummary {
 export interface MarketSnapshot {
   collectorStartedAt?: number;
   collectorEndedAt?: number;
-  volumeDiagnostics?: ReturnType<typeof import('./strategy.js').volumeDiagnostics>;
-  feedProvenance?: Record<string, import('./market/provenance.js').FeedProvenance>;
   dataProvenance?: { requestedVenue: string; actualVenue: string; dataType: 'native' | 'reference'; symbolMapping: { requested: string; actual: string; transformed: boolean }; executionCompatible: boolean; fetchedAt: number };
   snapshotId?: string;
   evidence?: Record<string, MeasurementEvidence>;
@@ -205,7 +201,6 @@ export interface Position {
   decisionEvidence?: Record<string, unknown>;
   ownership?: 'managed' | 'recovered' | 'external';
   protectionStatus?: 'confirmed' | 'missing' | 'unknown';
-  protectionEvidence?: import('./exchange/types.js').ProtectionEvidence;
   entryStatus?: 'confirmed' | 'estimated';
   isHedge?: boolean;
   id: string;

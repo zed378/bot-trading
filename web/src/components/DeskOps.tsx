@@ -1,450 +1,74 @@
-// Desk ops: compact live operational control surface (Mpu Gandring · Quiet Ops).
-// Same backend paths as the CLI: shared sizing module and the desk's one execution path. Localhost only.
-// Information roles: Portfolio owns per-position detail + canonical Max N control (server-confirmed
-// /api/ops/auto N path, persisted to OPEN_ORDERS_N); Desk Ops keeps a read-only slot summary + Close All.
-// Verdicts / Trade Log / Reports keep their own surfaces; Desk Ops shows only the last cycle summary.
-import { useEffect, useRef, useState } from 'react';
+// Desk controls for the Indodax spot desk: kill switch, start an agent debate for one pair, last verdict.
+import { useEffect, useState } from 'react';
 import { officeFetch as fetch } from '../officeApi';
 import type { DeskState } from '../types';
-import { POPULAR_SYMBOLS, VERIFIED_TOKENS } from '../types';
 import { useI18n } from '../i18n';
-import { TRADING_PRESETS, TRADING_PRESET_IDS, type TradingPresetId, type TradingNetwork } from '../../../server/trading-settings';
 
-const post = (url: string, body: unknown) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
-const num = (s: string) => (s.trim() === '' ? undefined : Number(s));
-
-export function deskSlotOccupancy(input: {
-  mode: 'PAPER' | 'TESTNET' | 'LIVE';
-  positionCount: number;
-  configuredN: number;
-  accountState?: { occupiedSlots?: number; pendingOpenCount?: number; maxPositions?: number; status?: string } | null;
-}): { used: number; n: number; pending: number; statusNote: string } {
-  const account = input.accountState;
-  if (input.mode === 'PAPER' || !account || typeof account.occupiedSlots !== 'number') {
-    return { used: input.positionCount, n: input.configuredN, pending: 0, statusNote: '' };
-  }
-  return {
-    used: account.occupiedSlots,
-    n: account.maxPositions ?? input.configuredN,
-    pending: account.pendingOpenCount ?? 0,
-    statusNote: account.status && account.status !== 'confirmed' ? account.status : ''
-  };
-}
+const PAIRS = ['BTCIDR', 'ETHIDR', 'SOLIDR', 'BTCUSDT', 'ETHUSDT'];
 
 export function DeskOps({ state }: { state: DeskState }) {
-  const { t, lang } = useI18n();
-  const [symbol, setSymbol] = useState(state.watchlist[0] ?? 'BTCUSDT');
-  const [side, setSide] = useState<'LONG' | 'SHORT'>('LONG');
-  const [entry, setEntry] = useState(''); const [stop, setStop] = useState(''); const [tp, setTp] = useState(''); const [lev, setLev] = useState('');
-  const [ticketBusy, setTicketBusy] = useState(false);
-  const ticketSelection = useRef('');
-  ticketSelection.current = `${symbol}:${side}:${entry}:${lev}`;
-  const [out, setOut] = useState<{ ok: boolean; text: string } | null>(null);
-  const [kill, setKill] = useState<{ killed: boolean; release: string | null; unkillCommand: string } | null>(null);
+  const { lang } = useI18n();
+  const id = lang === 'id';
+  const [pair, setPair] = useState(PAIRS[0]);
+  const [busy, setBusy] = useState(false);
   const [killBusy, setKillBusy] = useState(false);
-  const killed = kill?.killed ?? state.killed;
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [killed, setKilled] = useState(state.killed);
+  useEffect(() => { setKilled(state.killed); }, [state.killed]);
+  const running = Boolean(state.auto?.running);
 
-  const auto = state.auto;
-  const savedSymbols = (auto?.symbols ?? []).join(', ');
-  const [autoMin, setAutoMin] = useState(String(auto?.intervalMin || 15));
-  const [autoHold, setAutoHold] = useState(String(auto?.maxHoldHours ?? 0));
-  const [reportMin, setReportMin] = useState(String(state.reportIntervalMin ?? 60));
-  const [autoSyms, setAutoSyms] = useState((auto?.symbols ?? state.watchlist).join(', '));
-  const [symsDirty, setSymsDirty] = useState(false);
-  const [autoBusy, setAutoBusy] = useState(false);
-  const [presetBusy, setPresetBusy] = useState(false);
-  const [modeBusy, setModeBusy] = useState(false);
-  const [paperConfirmedPreset, setPaperConfirmedPreset] = useState<TradingPresetId | null>(null);
-  // Canonical Max N lives in Portfolio (server-confirmed /api/ops/auto). Desk Ops shows read-only slots.
-  const confirmedN = (state.paper?.n ?? 4) as 1 | 2 | 3 | 4;
-  const slotView = deskSlotOccupancy({ mode: state.mode, positionCount: state.paper.positions.length, configuredN: confirmedN, accountState: state.accountState });
+  const post = async (url: string, body: unknown) => {
+    const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    return { ok: response.ok, body: await response.json().catch(() => ({})) as Record<string, any> };
+  };
 
-  useEffect(() => {
-    if (state.mode === 'PAPER') {
-      fetch('/api/setup/trading')
-        .then((r) => r.json())
-        .then((d) => {
-          if (d?.ok && d.networks?.testnet?.profile && (TRADING_PRESET_IDS as readonly string[]).includes(d.networks.testnet.profile)) {
-            setPaperConfirmedPreset(d.networks.testnet.profile as TradingPresetId);
-          }
-        })
-        .catch(() => {});
-    }
-  }, [state.mode]);
-
-  const runningPreset = state.trading?.profile && (TRADING_PRESET_IDS as readonly string[]).includes(state.trading.profile)
-    ? (state.trading.profile as TradingPresetId)
-    : null;
-  const activePreset = (state.mode === 'PAPER' ? (paperConfirmedPreset ?? runningPreset) : runningPreset) ?? '';
-
-  const handlePresetChange = async (newPreset: TradingPresetId) => {
-    if (presetBusy || autoBusy) return;
-    const targetNetwork: TradingNetwork = state.mode === 'LIVE' ? 'mainnet' : 'testnet';
-
-    if (state.mode === 'LIVE') {
-      const runningLeverage = state.trading?.values?.maxLeverage ?? state.paper?.maxLeverage ?? 3;
-      const runningDailyLoss = state.trading?.values?.dailyLossLimitPct ?? state.dailyLoss?.limitPct ?? 3;
-      const targetPresetValues = TRADING_PRESETS[newPreset].values;
-      const increasesLeverage = targetPresetValues.maxLeverage > runningLeverage;
-      const increasesDailyLoss = targetPresetValues.dailyLossLimitPct > runningDailyLoss;
-      const isHighRisk = newPreset === 'aggressive';
-
-      if (isHighRisk || increasesLeverage || increasesDailyLoss) {
-        const confirmed = window.confirm(
-          lang === 'id'
-            ? `Ganti mode LIVE ke ${TRADING_PRESETS[newPreset].name}? Tindakan ini meningkatkan batas risiko (leverage maks ${targetPresetValues.maxLeverage}x, batas rugi harian ${targetPresetValues.dailyLossLimitPct}%).`
-            : `Switch LIVE to ${TRADING_PRESETS[newPreset].name}? This increases risk limits (max leverage ${targetPresetValues.maxLeverage}x, daily loss ${targetPresetValues.dailyLossLimitPct}%).`
-        );
-        if (!confirmed) return;
-      }
-    }
-
-    setPresetBusy(true);
+  const startDebate = async () => {
+    const symbol = pair.trim().toUpperCase();
+    if (!symbol || busy) return;
+    setBusy(true); setMessage(null);
     try {
-      const r = await post('/api/setup/trading', { network: targetNetwork, profile: newPreset }).catch(() => null);
-      if (r?.ok) {
-        if (state.mode === 'PAPER') setPaperConfirmedPreset(newPreset);
-        show(true, r.detail || `${t('opsPresetUpdated')} ${TRADING_PRESETS[newPreset].name}.`);
-      } else {
-        show(false, r?.detail || t('opsPresetFailed'));
-      }
-    } finally {
-      setPresetBusy(false);
-    }
+      const res = await post('/api/command', { text: `analyze ${symbol}` });
+      setMessage({ ok: res.ok && res.body.ok !== false, text: String(res.body.reply ?? res.body.error ?? res.body.message ?? '') });
+    } catch {
+      setMessage({ ok: false, text: id ? 'Debat tidak bisa dimulai. Periksa koneksi ke server.' : 'Could not start the debate. Check the server connection.' });
+    } finally { setBusy(false); }
   };
 
-  const useEffectAutoSync = (auto?.symbols ?? []).join(', ');
-
-  useEffect(() => {
-    if (auto?.intervalMin) setAutoMin(String(auto.intervalMin));
-  }, [auto?.intervalMin]);
-  useEffect(() => {
-    if (auto?.maxHoldHours !== undefined) setAutoHold(String(auto.maxHoldHours));
-  }, [auto?.maxHoldHours]);
-  useEffect(() => {
-    if (state.reportIntervalMin !== undefined) setReportMin(String(state.reportIntervalMin));
-  }, [state.reportIntervalMin]);
-  useEffect(() => {
-    if (!symsDirty && useEffectAutoSync) setAutoSyms(useEffectAutoSync);
-  }, [useEffectAutoSync, symsDirty]);
-
-  useEffect(() => { fetch('/api/ops/kill').then((r) => r.json()).then(setKill).catch(() => {}); }, [state.killed]);
-  const show = (ok: boolean, text: string) => setOut({ ok, text });
-
-  const parseSyms = (raw = autoSyms) => raw.split(/[\s,]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
-  const selectedSyms = parseSyms();
-
-  const updateAuto = async (patch: { on?: boolean; runNow?: boolean; symbolsOverride?: string[] }) => {
-    if (autoBusy) return;
-    setAutoBusy(true);
-    try {
-      // Never release the kill switch implicitly. Auto ON while killed must surface the backend 409
-      // and preserve actual state; release stays explicit via the Kill control / CLI.
-      if (patch.on && state.killed) {
-        show(false, lang === 'id'
-          ? 'Kill switch AKTIF. Lepaskan kill switch dulu (tombol Kill / npm run unkill -- --yes), lalu nyalakan Auto Trade.'
-          : 'Kill switch is ON. Release it first (Kill control / npm run unkill -- --yes), then enable Auto Trade.');
-        return;
-      }
-      const syms = (patch.symbolsOverride ?? parseSyms()).slice(0, 10);
-      const mins = Math.max(1, Math.min(1440, Number(autoMin) || 15));
-      const holdHours = Math.max(0, Math.min(720, Math.round(Number(autoHold) || 0)));
-      const repMins = Math.max(1, Math.min(1440, Number(reportMin) || 60));
-      const schedule = patch.on !== undefined ? { on: patch.on } : patch.runNow ? { runNow: true } : {
-        on: patch.on,
-        runNow: patch.runNow,
-        intervalMin: mins,
-        maxHoldHours: holdHours,
-        reportIntervalMin: repMins,
-        symbols: syms.length ? syms : state.watchlist
-      };
-      const r = await post('/api/ops/auto', schedule).catch(() => null);
-      if (r?.ok) {
-        setSymsDirty(false);
-        const holdTxt = r.auto?.maxHoldHours ? ` · max hold ${r.auto.maxHoldHours}h` : ' · hold no limit';
-        const repTxt = r.auto?.reportIntervalMin ? ` · report ${r.auto.reportIntervalMin}m` : '';
-        const modeTxt = r.auto?.on ? `Auto Trade scheduled every ${r.auto.intervalMin}m${holdTxt}${repTxt}` : 'Auto scheduler off';
-        show(true, patch.runNow ? `${modeTxt} · cycle started` : modeTxt);
-      } else {
-        show(false, r?.error ?? 'office not reachable');
-      }
-    } finally {
-      setAutoBusy(false);
-    }
-  };
-
-  const setDebateMode = async (mode: 'normal' | 'fast') => {
-    if (modeBusy || autoBusy || presetBusy) return;
-    if ((state.debateMode ?? 'normal') === mode) return;
-    setModeBusy(true);
-    try {
-      const r = await post('/api/ops/auto', { debateMode: mode }).catch(() => null);
-      show(!!r?.ok, r?.ok
-        ? (lang === 'id' ? `Mode debat: ${mode === 'fast' ? 'FAST' : 'NORMAL'}.` : `Debate mode: ${mode === 'fast' ? 'FAST' : 'NORMAL'}.`)
-        : (r?.error ?? 'office not reachable'));
-    } finally {
-      setModeBusy(false);
-    }
-  };
-
-  const addToken = (sym: string) => {
-    const clean = sym.trim().toUpperCase();
-    if (!clean) return;
-    const current = parseSyms();
-    if (current.includes(clean)) return;
-    if (current.length >= 10) return;
-    const next = [...current, clean];
-    setSymsDirty(true);
-    setAutoSyms(next.join(', '));
-  };
-
-  const removeToken = (sym: string) => {
-    const current = parseSyms();
-    if (current.length <= 1) return;
-    const next = current.filter((x) => x !== sym);
-    setSymsDirty(true);
-    setAutoSyms(next.join(', '));
-  };
-
-  const toggleTokenChip = (sym: string) => {
-    const current = parseSyms();
-    const exists = current.includes(sym);
-    const next = exists
-      ? (current.length > 1 ? current.filter((x) => x !== sym) : current)
-      : [...current, sym];
-    const nextStr = next.join(', ');
-    setSymsDirty(true);
-    setAutoSyms(nextStr);
-  };
-
-  const toggleKillSwitch = async (turnOn: boolean) => {
+  const toggleKill = async (on: boolean) => {
     if (killBusy) return;
     setKillBusy(true);
-    const r = await post('/api/ops/kill', { on: turnOn }).catch(() => null);
-    setKillBusy(false);
-    if (r?.ok) {
-      setKill({ killed: r.killed, release: null, unkillCommand: r.unkillCommand });
-      show(true, `${r.killed ? t('opsKillNowOn') : t('opsKillReleased')}${r.notes?.length ? ` ${r.notes.join('; ')}` : ''}`);
-    } else {
-      show(false, r?.error ?? t('cbKillFailedMsg'));
-    }
-  };
-
-  const preview = async (useGivenStop = true) => {
-    const selection = ticketSelection.current;
-    const r = await post('/api/ops/size', { symbol, side, entry: num(entry), stop: useGivenStop ? num(stop) : undefined, leverage: num(lev) }).catch(() => null);
-    if (selection !== ticketSelection.current) return null;
-    if (r?.ok && r.data) {
-      setStop(String(r.data.stop));
-      setTp(r.data.tp == null ? '' : String(r.data.tp));
-    }
-    show(!!r?.ok, r ? `${r.text}${r.source ? ` Price source: ${r.source}.` : ''}` : 'Office not reachable.');
-    return r;
-  };
-  const autoFillStop = async () => {
-    setTicketBusy(true);
-    try { await preview(false); } finally { setTicketBusy(false); }
-  };
-  const size = async () => {
-    setTicketBusy(true);
-    try { await preview(); } finally { setTicketBusy(false); }
-  };
-  const open = async () => {
-    setTicketBusy(true);
     try {
-      let stopVal = num(stop);
-      let tpVal = num(tp);
-      if (!(stopVal && stopVal > 0)) {
-        const r = await preview(false);
-        if (!r?.ok) return;
-        stopVal = r.data.stop; tpVal = r.data.tp ?? undefined;
+      const res = await post('/api/ops/kill', { on });
+      if (res.ok && typeof res.body.killed === 'boolean') {
+        setKilled(res.body.killed);
+        setMessage({ ok: true, text: res.body.killed ? (id ? 'Kill switch aktif. Siklus agen dan pemantau SL berhenti.' : 'Kill switch is on. Agent cycles and the SL monitor stop.') : (id ? 'Kill switch dilepas.' : 'Kill switch released.') });
+      } else {
+        setMessage({ ok: false, text: String(res.body.error ?? (id ? 'Kill switch gagal diubah.' : 'Could not change the kill switch.')) });
       }
-      const r = await post('/api/ops/open', { symbol, side, stop: stopVal, tp: tpVal, leverage: num(lev) }).catch(() => null);
-      show(!!r?.ok, r?.reply ?? 'Office not reachable.');
-    } finally { setTicketBusy(false); }
+    } catch {
+      setMessage({ ok: false, text: id ? 'Kill switch gagal diubah.' : 'Could not change the kill switch.' });
+    } finally { setKillBusy(false); }
   };
 
-  const closeAll = async () => {
-    if (!state.paper.positions.length) return;
-    if (!window.confirm(lang === 'id'
-      ? `Tutup SEMUA ${state.paper.positions.length} posisi paper?`
-      : `Close ALL ${state.paper.positions.length} paper position(s)?`)) return;
-    const r = await post('/api/ops/close', { symbol: 'all' }).catch(() => null);
-    show(!!r?.ok, r?.reply ?? 'office not reachable');
-  };
-  const isAutoOn = !!auto?.on;
-  const QuickTokens = POPULAR_SYMBOLS.slice(0, 10);
-
-  const busy = autoBusy || presetBusy || modeBusy;
-  const lastOutcome = state.lastCycle?.outcome ?? state.lastCycle?.executionStatus ?? null;
-
-  return (
-    <section className="panel desk-ops desk-ops-compact" aria-label="Desk operations">
-      <div className="panel-head"><h2>{t('deskOpsTitle')}</h2></div>
-      <div className={`ops-kill-bar ${killed ? 'is-killed' : 'is-active'}`}>
-        <div className="kill-status-wrap"><span className="kill-indicator" /><span className="kill-status-label" role="status">{killed ? t('killSwitchOnLocked') : t('killSwitchOffReady')}</span></div>
-        <button type="button" role="switch" aria-label="Kill switch" aria-checked={killed} aria-busy={killBusy} disabled={killBusy} className={`kill-toggle-btn ${killed ? 'release-btn' : 'engage-btn'}`} onClick={() => void toggleKillSwitch(!killed)} title={killed ? t('cbKillReleaseTitle') : t('cbKillEngageTitle')}>{killBusy ? '…' : killed ? t('unlockKillBtn') : t('engageKillBtn')}</button>
-      </div>
-      <details className="ops-details" aria-label="Jev decision monitor">
-        <summary>{t('jevMonitorTitle')} · {state.jev?.health ?? t('jevNotConfigured')}</summary>
-        <small className="auto-cycle-meta">{state.jev ? `${state.jev.mode} · ${state.jev.provider} · ${state.jev.model}` : t('jevNotConfigured')}{state.jev?.allowLive ? ' · LIVE ASSIST authorized' : ''}</small>
-        <dl className="setup-summary">
-          <div><dt>{t('jevRegime')}</dt><dd>{String((state.jev?.lastDecision as { interpretation?: { marketRegime?: string } } | undefined)?.interpretation?.marketRegime ?? (state.jev?.lastDecision as { pre?: { interpretation?: { marketRegime?: string } } } | undefined)?.pre?.interpretation?.marketRegime ?? t('jevNotYetEvaluated'))}</dd></div>
-          <div><dt>{t('jevLatency')}</dt><dd>{state.jev?.metrics?.lastLatencyMs == null ? t('jevUnavailable') : `${state.jev.metrics.lastLatencyMs} ms`}</dd></div>
-          <div><dt>{t('jevCost')}</dt><dd>{state.jev?.metrics?.lastCost == null ? t('jevUnavailable') : String(state.jev.metrics.lastCost)}</dd></div>
-          <div><dt>{t('jevAffected')}</dt><dd>{state.jev?.affectedContext ? t('jevYes') : t('jevNo')}</dd></div>
-        </dl>
-      </details>
-      <section className={`auto-setup-box ${isAutoOn ? 'is-on' : 'is-off'}`} aria-labelledby="ops-auto-title">
-        <div className="auto-setup-title">
-          <i className={`auto-dot ${isAutoOn ? 'on' : 'off'} ${auto?.running ? 'pulse' : ''}`} /><h3 id="ops-auto-title">{t('autoTradeTitle')}</h3>
-          <span className={`auto-status-pill ${isAutoOn ? 'on' : 'off'}`}>{auto?.running ? (lang === 'id' ? 'Siklus aktif' : 'Cycle active') : isAutoOn ? (lang === 'id' ? 'Terjadwal' : 'Scheduled') : (lang === 'id' ? 'Mati' : 'Off')}</span>
-        </div>
-        <div className="auto-quick-actions">
-          <div className="seg auto-toggle-seg" role="group" aria-label="Auto Trade toggle">
-            <button type="button" className={isAutoOn ? 'on auto-on-btn' : ''} disabled={busy} onClick={() => void updateAuto({ on: true })}>{t('autoStartBtn')}</button>
-            <button type="button" className={!isAutoOn ? 'on auto-off-btn' : ''} disabled={busy} onClick={() => void updateAuto({ on: false })}>{t('autoStopBtn')}</button>
-          </div>
-          <div className="auto-run-group">
-          <div className="auto-preset-selector">
-            <select
-              className="auto-preset-select"
-              aria-label="Trading risk preset"
-              disabled={busy}
-              value={activePreset}
-              onChange={(e) => void handlePresetChange(e.target.value as TradingPresetId)}
-            >
-              {!activePreset && <option value="" disabled hidden>{t('opsPresetCustom')}</option>}
-              <option value="default">{t('opsPresetDefault')}</option>
-              <option value="balance">{t('opsPresetBalance')}</option>
-              <option value="profit">{t('opsPresetProfit')}</option>
-              <option value="aggressive">Aggressive</option>
-            </select>
-            <span className="auto-preset-chevron" aria-hidden="true">▾</span>
-          </div>
-          <button type="button" className="mini auto-run-btn" disabled={busy || state.killed || !!auto?.running} onClick={() => void updateAuto({ runNow: true })}>{t('autoRunNowBtn')}</button>
-          </div>
-        </div>
-        <div className="auto-mode-row">
-          <div className="seg auto-toggle-seg" role="group" aria-label="Decision mode">
-            <button type="button" className={state.debateMode !== 'fast' ? 'on' : ''} disabled={busy} onClick={() => void setDebateMode('normal')}>{t('opsDebateNormal')}</button>
-            <button type="button" className={state.debateMode === 'fast' ? 'on' : ''} disabled={busy} onClick={() => void setDebateMode('fast')}>{t('opsDebateFast')}</button>
-          </div>
-        </div>
-        <p className="ops-last-cycle" role="status">{t('opsLastCycle')}: {state.lastCycle?.symbol ? `${state.lastCycle.symbol} · ${state.lastCycle.verdict ?? '-'}${lastOutcome ? ` · ${lastOutcome}` : ''}` : (lang === 'id' ? 'Belum ada siklus.' : 'No cycle yet.')}</p>
-        <p className="ops-slots-line">{lang === 'id' ? 'Slot' : 'Slots'} {slotView.used}/{slotView.n}{slotView.pending > 0 ? (lang === 'id' ? ` · ${slotView.pending} antre` : ` · ${slotView.pending} pending`) : ''}{slotView.statusNote ? ` · ${slotView.statusNote}` : ''} · ${state.paper.perOrder}/ord</p>
-        {state.accountState && <p className="ops-slots-line">{lang === 'id' ? 'Modal tersedia' : 'Capital available'}: {state.accountState.hasTradableCapital === null ? 'UNKNOWN' : state.accountState.hasTradableCapital ? 'YES' : 'NO'} · {lang === 'id' ? 'Slot kosong' : 'Free slots'}: {state.accountState.freeSlots} · {state.accountState.source} ({state.accountState.status})</p>}
-        <details className="ops-details">
-          <summary>{lang === 'id' ? 'Rincian siklus' : 'Cycle details'}</summary>
-          <dl className="setup-summary">
-            <div><dt>{t('opsCycleStage')}</dt><dd>{state.debate?.phase ?? state.lastCycle?.stage ?? 'idle'}</dd></div>
-            <div><dt>{t('opsLastCycle')}</dt><dd>{state.lastCycle?.durationMs == null ? '-' : `${state.lastCycle.durationMs} ms`}{state.lastCycle?.symbol ? ` · ${state.lastCycle.symbol}` : ''}</dd></div>
-            <div><dt>{t('opsLastVerdict')}</dt><dd>{state.lastCycle?.verdict ?? state.verdicts[0]?.action ?? '-'}</dd></div>
-            <div><dt>{t('opsNoTradeReason')}</dt><dd>{state.lastCycle?.noTradeReason ?? '-'}</dd></div>
-            <div><dt>{t('opsLastExecution')}</dt><dd>{lastOutcome ?? '-'}</dd></div>
-          </dl>
-        </details>
-        <details className="ops-details">
-          <summary>{lang === 'id' ? 'Jadwal & simbol' : 'Schedule & symbols'}</summary>
-          <div className="auto-setup-controls">
-            <label className="auto-min-field" title={lang === 'id' ? 'Interval siklus debat dan scan pasar (menit)' : 'Market scan and debate interval (minutes)'}>
-              <span className="auto-field-label">{lang === 'id' ? 'Setiap (menit)' : 'Every (min)'}</span>
-              <input type="number" min={1} max={1440} className="auto-num-input" aria-label="auto interval minutes" value={autoMin} onChange={(e) => setAutoMin(e.target.value)} />
-            </label>
-            <label className="auto-min-field auto-hold-field" title={lang === 'id' ? 'Batas umur posisi sebelum ditutup otomatis. 0 = mati (hold terus sampai SL/TP)' : 'Maximum position duration before auto-close. 0 = disabled (hold until SL/TP)'}>
-              <span className="auto-field-label">{lang === 'id' ? 'Batas Hold (jam)' : 'Max Hold (hrs)'}</span>
-              <input type="number" min={0} max={720} className="auto-num-input" aria-label="auto max hold hours" placeholder="0" value={autoHold} onChange={(e) => setAutoHold(e.target.value)} />
-            </label>
-            <label className="auto-min-field auto-report-field" title={lang === 'id' ? 'Interval pengiriman laporan berkala ke channel (menit)' : 'Periodic report delivery interval to channels (minutes)'}>
-              <span className="auto-field-label">{lang === 'id' ? 'Laporan (menit)' : 'Report (min)'}</span>
-              <input type="number" data-rebirth-additive="true" min={1} max={1440} className="auto-num-input" aria-label="auto report interval minutes" value={reportMin} onChange={(e) => setReportMin(e.target.value)} />
-            </label>
-            <button type="button" className="mini auto-save-btn" disabled={autoBusy} onClick={() => void updateAuto({})}>{t('autoSaveBtn')}</button>
-          </div>
-          <div className="watchlist-builder">
-            <div className="watchlist-header">
-              <span className="watchlist-count">{lang === 'id' ? 'Watchlist aktif' : 'Active watchlist'}: <strong>{selectedSyms.length}/10</strong></span>
-              {selectedSyms.length >= 10 ? (
-                <span className="watchlist-max-badge">{lang === 'id' ? 'Maksimal 10 token' : 'Max 10 reached'}</span>
-              ) : (
-                <span className="watchlist-hint">{lang === 'id' ? 'Pilih hingga 10 token' : 'Select up to 10 tokens'}</span>
-              )}
-            </div>
-            <div className="watchlist-chips" role="group" aria-label="Active watchlist tokens">
-              {selectedSyms.map((sym) => {
-                const hasPos = state.paper.positions.find((p) => p.symbol === sym);
-                return (
-                  <span key={sym} className={`watchlist-chip ${hasPos ? `pos-${hasPos.side.toLowerCase()}` : ''}`} title={`${sym}${hasPos ? ` (${hasPos.side} open)` : ''}`}>
-                    <span className="chip-name">{sym.replace(/(USDT|1000)/g, '') || sym}</span>
-                    {hasPos && <b className="chip-pos-tag">{hasPos.side === 'LONG' ? 'L' : 'S'}</b>}
-                    <button
-                      type="button"
-                      className="chip-remove-btn"
-                      aria-label={`Remove ${sym}`}
-                      disabled={autoBusy || selectedSyms.length <= 1}
-                      onClick={() => removeToken(sym)}
-                      title={selectedSyms.length <= 1 ? (lang === 'id' ? 'Minimal 1 simbol' : 'Keep at least 1 symbol') : `Hapus ${sym}`}
-                    >
-                      ×
-                    </button>
-                  </span>
-                );
-              })}
-              {selectedSyms.length < 10 && (
-                <div className="watchlist-add-wrapper">
-                  <select
-                    className="watchlist-add-select"
-                    aria-label="Add token from verified list"
-                    disabled={autoBusy}
-                    value=""
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        addToken(e.target.value);
-                        e.target.value = '';
-                      }
-                    }}
-                  >
-                    <option value="" disabled>+ {lang === 'id' ? 'Tambah Token...' : 'Add Token...'}</option>
-                    {VERIFIED_TOKENS.filter((s) => !selectedSyms.includes(s)).map((sym) => (
-                      <option key={sym} value={sym}>
-                        {sym}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-          </div>
-          <label className="ops-symbols-field ops-symbols-field-raw">
-            <span>{t('opsSymbolsLabel')}</span>
-            <input className="auto-syms-input" aria-label="auto symbols" placeholder="BTCUSDT, ETHUSDT, SOLUSDT, ZECUSDT" value={autoSyms} onChange={(e) => { setSymsDirty(true); setAutoSyms(e.target.value.toUpperCase()); }} />
-          </label>
-          <p className="ops-help">{t('opsAutoHelpText')}</p>
-        </details>
-      </section>
-      <div className="ops-position-actions"><strong>{t('opsPositionsTitle')} {state.paper.positions.length}/{confirmedN}</strong><button disabled={!state.paper.positions.length} onClick={() => void closeAll()}>{t('closeAll')}</button></div>
-      <details className="ops-details">
-        <summary>{t('opsManualTicketTitle')}</summary>
-        <div className="ops-market-row">
-          <label>{t('opsSymbolLabel')}<input aria-label="symbol" list="ops-ticket-symbols" value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} /></label>
-          <datalist id="ops-ticket-symbols">{[...new Set([...state.watchlist, ...POPULAR_SYMBOLS])].map((s) => <option key={s} value={s} />)}</datalist>
-          <div className="ops-side-field"><span>{t('opsSideLabel')}</span><div className="seg" role="group" aria-label="side">{(['LONG', 'SHORT'] as const).map((s) => <button key={s} className={side === s ? 'on' : ''} aria-pressed={side === s} onClick={() => setSide(s)}>{s}</button>)}</div></div>
-        </div>
-        <p className="ops-help">{t('opsExecutionPrefix')} {state.venue?.label ?? state.mode} · {t('opsAnalysisPrefix')} {state.marketSource}. {t('opsPricesMayDiffer')}</p>
-        <div className="ticket-inputs">
-          <label>{t('opsEntryLabel')}<input aria-label="entry" placeholder={t('opsLiveQuotePlaceholder')} value={entry} onChange={(e) => setEntry(e.target.value)} /></label>
-          <label>{t('opsStopLossLabel')}<input aria-label="stop" placeholder={t('opsStopPricePlaceholder')} value={stop} readOnly /></label>
-          <label>{t('opsTakeProfitLabel')}<input aria-label="take profit" placeholder={t('opsTpPricePlaceholder')} value={tp} readOnly /></label>
-          <label>{t('opsLeverageLabel')}<input aria-label="leverage" placeholder={`≤ ${state.paper.maxLeverage}x`} value={lev} onChange={(e) => setLev(e.target.value)} /></label>
-        </div>
-        <p className="ops-help">{t('opsAutoStopHelpText')}</p>
-        <div className="ops-ticket-actions">
-          <button type="button" className="auto-stop-pill-btn" onClick={() => void autoFillStop()} disabled={ticketBusy}>{t('calcAutoStopBtn')}</button>
-          <button onClick={() => void size()} disabled={ticketBusy}>{t('sizeTicket')}</button>
-          <button onClick={() => void open()} disabled={state.killed || ticketBusy}>{t('openWithStop')}</button>
-        </div>
-      </details>
-      {out && <p role="status" className={`wallet-msg ${out.ok ? 'ok' : 'bad'}`}>{out.text}</p>}
-    </section>
-  );
+  const verdict = state.verdicts[0];
+  return <section className="wallet-panel" aria-labelledby="desk-ops-title">
+    <h3 id="desk-ops-title">{id ? 'Kontrol meja Indodax' : 'Indodax desk controls'}</h3>
+    <div className={`ops-kill-bar ${killed ? 'is-killed' : 'is-active'}`}>
+      <div className="kill-status-wrap"><span className="kill-indicator" /><span className="kill-status-label" role="status">{killed ? (id ? 'Kill switch aktif' : 'Kill switch on') : (id ? 'Kill switch mati, siap' : 'Kill switch off, ready')}</span></div>
+      <button type="button" role="switch" aria-label="Kill switch" aria-checked={killed} aria-busy={killBusy} disabled={killBusy} className={`kill-toggle-btn ${killed ? 'release-btn' : 'engage-btn'}`} onClick={() => void toggleKill(!killed)}>{killBusy ? '…' : killed ? (id ? 'Lepas' : 'Release') : (id ? 'Aktifkan kill' : 'Engage kill')}</button>
+    </div>
+    <p className="wallet-note">{id
+      ? 'Debat enam agen memakai data publik Indodax (candle 4 jam tertutup) dan hanya memberi saran. Posisi simulasi dibuka dari panel Indodax.'
+      : 'The six-agent debate uses public Indodax data (closed 4h candles) and only gives advice. Simulated positions are opened from the Indodax panel.'}</p>
+    <div className="setup-nav">
+      <label>{id ? 'Pasangan Indodax' : 'Indodax pair'}
+        <input list="desk-ops-pairs" value={pair} onChange={(e) => setPair(e.target.value)} maxLength={20} disabled={busy} />
+        <datalist id="desk-ops-pairs">{PAIRS.map((p) => <option key={p} value={p} />)}</datalist>
+      </label>
+      <button type="button" disabled={busy || running || killed || !pair.trim()} onClick={() => void startDebate()}>{busy ? '…' : (id ? 'Mulai debat' : 'Start debate')}</button>
+    </div>
+    {running && <p className="wallet-note" role="status">{id ? 'Satu siklus agen sedang berjalan.' : 'An agent cycle is running.'}</p>}
+    {message && <p className={`wallet-msg ${message.ok ? '' : 'bad'}`} role="status">{message.text}</p>}
+    {verdict && <p className="wallet-note">{id ? 'Verdict terakhir' : 'Last verdict'}: <b>{verdict.action}</b> {verdict.symbol} · {verdict.reason}</p>}
+  </section>;
 }

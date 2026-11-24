@@ -7,19 +7,19 @@ import type { ChatLine } from '../types';
 import { useI18n } from '../i18n';
 
 const QUICK_EN: Record<AgentId, string[]> = {
-  lead: ['analyze ETHUSDT', 'What did we learn so far?', 'be more cautious', 'status'],
-  market: ['analyze SOLUSDT', 'What is the tape saying?', 'be more aggressive'],
+  lead: ['analyze ETHIDR', 'What did we learn so far?', 'be more cautious', 'status'],
+  market: ['analyze SOLIDR', 'What is the tape saying?', 'be more aggressive'],
   research: ['Anything that would make you veto?', 'be more cautious'],
-  strategist: ['Explain your rule in one line', 'analyze ETHUSDT'],
+  strategist: ['Explain your rule in one line', 'analyze ETHIDR'],
   risk: ['be more cautious', 'calm down', 'close all'],
   execution: ['close all', 'status']
 };
 
 const QUICK_ID: Record<AgentId, string[]> = {
-  lead: ['analyze ETHUSDT', 'Apa yang kita pelajari sejauh ini?', 'lebih hati-hati', 'status'],
-  market: ['analyze SOLUSDT', 'Bagaimana kondisi orderbook?', 'lebih agresif'],
+  lead: ['analyze ETHIDR', 'Apa yang kita pelajari sejauh ini?', 'lebih hati-hati', 'status'],
+  market: ['analyze SOLIDR', 'Bagaimana kondisi orderbook?', 'lebih agresif'],
   research: ['Ada indikasi yang memicu veto?', 'lebih hati-hati'],
-  strategist: ['Jelaskan strategimu dalam satu baris', 'analyze ETHUSDT'],
+  strategist: ['Jelaskan strategimu dalam satu baris', 'analyze ETHIDR'],
   risk: ['lebih hati-hati', 'tenang dulu', 'close all'],
   execution: ['close all', 'status']
 };

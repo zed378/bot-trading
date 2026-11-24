@@ -249,7 +249,7 @@ export class SettingsService {
       ? (rawProfile as TradingProfile)
       : 'current';
 
-    const watchlist = (env.WATCHLIST ?? 'BTCUSDT,ETHUSDT,SOLUSDT,ZECUSDT')
+    const watchlist = (env.WATCHLIST ?? 'BTCIDR,ETHIDR,SOLIDR')
       .split(',')
       .map((s) => s.trim().toUpperCase())
       .filter((s) => s.length >= 2);
@@ -312,13 +312,13 @@ export class SettingsService {
         allowExperimentalLive: (env.ALLOW_EXPERIMENTAL_LIVE ?? '').trim() === 'yes',
         asterEntryOrderType: (env.ASTER_ENTRY_ORDER_TYPE ?? '').trim().toUpperCase() === 'LIMIT_GTC' ? 'LIMIT_GTC' : 'MARKET'
       },
-      watchlist: watchlist.length > 0 ? watchlist : ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ZECUSDT'],
+      watchlist: watchlist.length > 0 ? watchlist : ['BTCIDR', 'ETHIDR', 'SOLIDR'],
       auto: {
         on: boolOr(env.AUTO_TRADING, false),
         intervalMin: Math.max(1, Math.trunc(numOr(env.DEBATE_INTERVAL_MIN, 15))),
         reportIntervalMin: Math.max(1, Math.trunc(numOr(env.REPORT_INTERVAL_MIN, 60))),
         maxHoldHours: Math.max(0, Math.trunc(numOr(env.MAX_HOLD_HOURS, 0))),
-        symbols: watchlist.length > 0 ? watchlist : ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ZECUSDT'],
+        symbols: watchlist.length > 0 ? watchlist : ['BTCIDR', 'ETHIDR', 'SOLIDR'],
         connectedConsensus: boolOr(env.CONNECTED_CONSENSUS, false)
       },
       agents: {

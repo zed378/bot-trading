@@ -22,7 +22,7 @@ import { buildLiveDeskChatContext } from '../../server/v2/api/chat.js';
 import { unkill, notifyOfficeRelease } from '../../cli/unkill.js';
 import { activityEntries, activityForView } from '../../web/src/activityLog.js';
 import { createInitialOfficeState } from '../../server/v2/office.js';
-import { writeKill, DEFAULT_KILL_FILE } from '../../server/killswitch.js';
+import { writeKill, DEFAULT_KILL_FILE } from '../../server/v2/kill-file.js';
 
 const tempDirs: string[] = [];
 const openStores: RuntimeStore[] = [];

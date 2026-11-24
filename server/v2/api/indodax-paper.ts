@@ -1,6 +1,5 @@
 import type express from 'express';
 import { z } from 'zod';
-import { randomUUID } from 'node:crypto';
 import { IndodaxPublicClient, indodaxSymbol } from '../../market/indodax.js';
 import { buildIndodaxContext, indodaxPromptSummary } from '../../market/indodax-context.js';
 import { INDODAX_PAPER_CONSTRAINTS } from '../../../shared/indodax-context.js';

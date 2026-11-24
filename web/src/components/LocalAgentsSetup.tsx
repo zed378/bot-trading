@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { officeFetch as fetch } from '../officeApi';
 import { useI18n } from '../i18n';
-import { CodexResearchSetup } from './CodexResearchSetup';
 
 interface LocalAgent {
   id: string;
@@ -486,7 +485,6 @@ export function LocalAgentsSetup({ available }: { available: boolean }) {
                         </button>
                       </div>
 
-                      {a.id === 'codex' && <CodexResearchSetup available={available} />}
                     </div>
                   )}
 

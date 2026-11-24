@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server as HttpServer } from 'node:http';
@@ -11,22 +11,7 @@ import {
   recordDiagnostic,
   registerDiagnosticSecrets
 } from '../session-log.js';
-import {
-  EXCHANGES,
-  ROLE_IDS,
-  unavailableEvidence,
-  availableFinancialField,
-  unavailableFinancialField,
-  type AppMode,
-  type Network,
-  type OfficeCommand,
-  type OfficeReply,
-  type OfficeRuntime,
-  type OfficeState,
-  type RoleId,
-  type TradingMode,
-  type VenueId
-} from './contracts.js';
+import { EXCHANGES, ROLE_IDS, type AppMode, type Network, type OfficeCommand, type OfficeReply, type OfficeRuntime, type OfficeState, type RoleId, type TradingMode, type VenueId } from './contracts.js';
 import {
   attachOfficeWebSocket,
   createInitialOfficeState,
@@ -40,15 +25,7 @@ import { createOfficialProviderCaller, type ProviderAssignment } from './agents/
 import { loadProviderProfiles, type SavedProviderProfile } from './settings/provider-profiles.js';
 import { resolveCanonicalRole } from './agents/roles.js';
 import { PROVIDER_KEY_ENV, SecretStore } from './settings/secrets.js';
-import {
-  DEFAULT_TRADING_SETTINGS,
-  resolveTradingPresetValues,
-  TRADING_PRESET_IDS,
-  TRADING_PROFILES,
-  type ApiProviderId,
-  type TradingPresetId,
-  type TradingProfile
-} from './settings/schema.js';
+import { type ApiProviderId } from './settings/schema.js';
 import type { Position, Stance, Verdict } from '../../shared/office.js';
 import type { IndodaxContext } from '../../shared/indodax-context.js';
 import type { IndodaxTimeframe } from '../../shared/indodax.js';
@@ -60,51 +37,15 @@ import { RuntimeStore } from './store/database.js';
 import { ExecutionAuthorityService } from './accounts/authority.js';
 import { AccountRegistry } from './accounts/registry.js';
 import { SettingsService } from './settings/service.js';
-import { ExecutionGateway, convertDailyLossPctToUsdt, resolveOwnerPerOrderUsdt } from './execution/gateway.js';
-import { getVenueAdapter, createTransportFromAdapter } from './execution/adapters/factory.js';
+import { ExecutionGateway } from './execution/gateway.js';
 import { ChatService } from './api/chat.js';
-import { PaperVenue } from './sandbox/paper.js';
-import { analyzeSMC } from '../market/smc.js';
 import type { VenueAdapter } from './execution/adapters/types.js';
-import type { MarketFrame, TF } from './contracts.js';
-import {
-  assertLivePermissionEvidence,
-  type PermissionEvidence,
-  type NativeAccountIdentity,
-  type NativeBalance,
-  type NativePosition
-} from './execution/adapters/types.js';
-import { HELP_TEXT, DiscordGateway, syncDiscordCommandsV2, syncTelegramCommandsV2, TelegramPoller } from './channels.js';
+import { HELP_TEXT, syncTelegramCommandsV2, TelegramPoller } from './telegram.js';
 import { formatDeskReportText, ReportsService } from './reports.js';
-import {
-  deskOpenPnl,
-  formatLessonsCard,
-  formatPositionsCard,
-  formatScanCard,
-  formatScorecardCard,
-  formatStatusCard,
-  formatWatchlistCard
-} from './channel-text.js';
+import { deskOpenPnl, formatLessonsCard, formatScorecardCard, formatStatusCard } from './channel-text.js';
 import { readKill, writeKill, clearKill, DEFAULT_KILL_FILE } from './kill-file.js';
-function normSymbol(s: string): string {
-  const up = s.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (!up) return '';
-  return /USDT$|USDC$|USD$/.test(up) ? up : `${up}USDT`;
-}
 
-function roundPriceMetric(val: number | null | undefined, refPrice = 1): number | null {
-  if (val === null || val === undefined || !Number.isFinite(val)) return null;
-  const absRef = Math.abs(refPrice || val);
-  const decimals = absRef >= 100 ? 2 : absRef >= 1 ? 4 : absRef >= 0.01 ? 6 : 8;
-  const factor = 10 ** decimals;
-  return Math.round(val * factor) / factor;
-}
 
-function roundRatioMetric(val: number | null | undefined, decimals = 2): number | null {
-  if (val === null || val === undefined || !Number.isFinite(val)) return null;
-  const factor = 10 ** decimals;
-  return Math.round(val * factor) / factor;
-}
 
 export class StartupValidationError extends Error {
   constructor(message: string, public readonly exitCode = 2) {
@@ -487,7 +428,6 @@ export function computeCrossMarketBreadth(
 export function createReplacementRuntime(
   options: ReplacementRuntimeOptions = {}
 ): ReplacementRuntimeHandle {
-  const newsBriefingsBySymbol = new Map<string, unknown>();
   const hub = new OfficeEventHub();
   const env = options.env ?? process.env;
   let state = createInitialOfficeState({
@@ -846,7 +786,6 @@ export function createReplacementRuntime(
     };
   };
 
-  let lastFightAt = 0;
   const updateAutoSettings = (patch: { debateMode?: 'normal' | 'fast'; [key: string]: unknown }): OfficeState => {
     updateState((draft) => { if (patch.debateMode !== undefined) draft.debateMode = patch.debateMode as 'normal' | 'fast'; });
     hub.emit('state', snapshot());
@@ -1009,7 +948,6 @@ export function createReplacementRuntime(
 
           if (fightHolder.current) {
             hub.emit('fight', fightHolder.current);
-            lastFightAt = fightHolder.current.at;
           }
 
           if (options.chatService) {

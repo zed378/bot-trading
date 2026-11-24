@@ -2,26 +2,10 @@ import type express from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { safe } from '../../redact.js';
-import { isLocalLoopbackClient, type OfficeRuntime, type OfficeState, type TF } from '../contracts.js';
+import { isLocalLoopbackClient, type OfficeRuntime } from '../contracts.js';
 import type { RuntimeStore } from '../store/database.js';
 
-function roundPriceMetric(val: number | string | null | undefined, refPrice = 1): number | null {
-  if (val === null || val === undefined) return null;
-  const num = typeof val === 'number' ? val : Number(val);
-  if (!Number.isFinite(num)) return null;
-  const absRef = Math.abs(refPrice || num);
-  const decimals = absRef >= 100 ? 2 : absRef >= 1 ? 4 : absRef >= 0.01 ? 6 : 8;
-  const factor = 10 ** decimals;
-  return Math.round(num * factor) / factor;
-}
 
-function roundRatioMetric(val: number | string | null | undefined, decimals = 2): number | null {
-  if (val === null || val === undefined) return null;
-  const num = typeof val === 'number' ? val : Number(val);
-  if (!Number.isFinite(num)) return null;
-  const factor = 10 ** decimals;
-  return Math.round(num * factor) / factor;
-}
 
 export interface StudioConversation {
   id: string;
@@ -250,4 +234,3 @@ export function mountChatRoutes(
   });
 }
 
-const SECRET_KEY_RE = /(key|secret|token|password|private|authorization|seed|mnemonic|webhook)/i;

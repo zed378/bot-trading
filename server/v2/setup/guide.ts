@@ -1,8 +1,4 @@
-import {
-  EXCHANGES,
-  type Network,
-  type VenueId
-} from '../contracts.js';
+import { type Network, type VenueId } from '../contracts.js';
 
 export interface GuideLink {
   label: string;

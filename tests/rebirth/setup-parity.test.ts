@@ -35,56 +35,8 @@ describe('Setup API Parity Verification', () => {
     }
   }
 
-  it('GET /api/setup returns full SetupInfo matching frontend contract', async () => {
-    await withTestApp(async (baseUrl) => {
-      const res = await fetch(`${baseUrl}/api/setup`, {
-        headers: { host: '127.0.0.1' }
-      });
-      expect(res.status).toBe(200);
-      const data = (await res.json()) as {
-        ok: boolean;
-        modes: Array<{ mode: string }>;
-        liveConfirmPhrase: string;
-        status: { tradingMode: string; venues: unknown[] };
-        venues: Array<{ venue: string; label: string; kind: string }>;
-      };
-      expect(data.ok).toBe(true);
-      expect(data.modes.length).toBe(3);
-      expect(data.liveConfirmPhrase).toBe('I understand LIVE trades real money');
-      expect(data.status.tradingMode).toBe('PAPER');
-      expect(data.venues.length).toBe(8);
-    });
-  });
 
-  it('GET /api/setup/guide/:venue returns guide steps and fields for any of the 8 venues', async () => {
-    await withTestApp(async (baseUrl) => {
-      const venues = ['bybit', 'binance', 'okx', 'hyperliquid', 'aster', 'dydx', 'paradex', 'orderly'] as const;
-      for (const venue of venues) {
-        const res = await fetch(`${baseUrl}/api/setup/guide/${venue}?network=testnet`, {
-          headers: { host: '127.0.0.1' }
-        });
-        expect(res.status).toBe(200);
-        const data = (await res.json()) as { steps: unknown[]; fields: unknown[]; connectWallet: boolean };
-        expect(Array.isArray(data.steps)).toBe(true);
-        expect(Array.isArray(data.fields)).toBe(true);
-      }
-    });
-  });
 
-  it('POST /api/setup/doctor runs diagnostic lines', async () => {
-    await withTestApp(async (baseUrl) => {
-      const res = await fetch(`${baseUrl}/api/setup/doctor`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', host: '127.0.0.1' },
-        body: '{}'
-      });
-      expect(res.status).toBe(200);
-      const data = (await res.json()) as { ok: boolean; lines: Array<{ label: string; detail: string }> };
-      expect(data.ok).toBe(true);
-      expect(data.lines.length).toBeGreaterThanOrEqual(4);
-      expect(data.lines.some((l) => l.label.toLowerCase().includes('mode'))).toBe(true);
-    });
-  });
 
   it('GET and POST /api/setup/models supports provider catalog and agent config', async () => {
     await withTestApp(async (baseUrl) => {
@@ -143,35 +95,6 @@ describe('Setup API Parity Verification', () => {
     });
   });
 
-  it('GET and POST /api/setup/data-sources supports both flat and nested key formats', async () => {
-    await withTestApp(async (baseUrl) => {
-      const getRes = await fetch(`${baseUrl}/api/setup/data-sources`, {
-        headers: { host: '127.0.0.1' }
-      });
-      expect(getRes.status).toBe(200);
-      const getData = (await getRes.json()) as {
-        ok: boolean;
-        cryptoPanicKeySet: boolean;
-        whaleAlertKeySet: boolean;
-        coinMarketCapKeySet: boolean;
-      };
-      expect(getData.ok).toBe(true);
-      expect(typeof getData.cryptoPanicKeySet).toBe('boolean');
-
-      // Flat format from DataSourcesSetup.tsx
-      const postRes = await fetch(`${baseUrl}/api/setup/data-sources`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', host: '127.0.0.1' },
-        body: JSON.stringify({
-          cryptoPanicKey: 'cp-key-test',
-          whaleAlertKey: 'wa-key-test'
-        })
-      });
-      expect(postRes.status).toBe(200);
-      const postData = (await postRes.json()) as { ok: boolean };
-      expect(postData.ok).toBe(true);
-    });
-  });
 
   it('GET /api/setup/channels returns channel status and guides', async () => {
     await withTestApp(async (baseUrl) => {
@@ -186,7 +109,7 @@ describe('Setup API Parity Verification', () => {
       };
       expect(data.ok).toBe(true);
       expect(data.channels).toContain('telegram');
-      expect(data.channels).toContain('discord');
+      expect(data.channels).toEqual(['telegram']);
     });
   });
 });

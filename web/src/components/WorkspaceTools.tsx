@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DeskState } from '../types';
 import { DeskOps } from './DeskOps';
 import { Lessons } from './Lessons';
-import { Portfolio, TradeLog } from './Panels';
+import { TradeLog } from './Panels';
 import { useI18n } from '../i18n';
 import { Indodax } from '../integrations/Indodax';
 import { ProviderProfiles } from '../integrations/ProviderProfiles';
@@ -11,7 +11,6 @@ const TOOLS = [
   { id: 'providers', label: 'AI', path: 'M9 3h6v4h4v10h-4v4H9v-4H5V7h4zM9 10h6m-6 4h6' },
   { id: 'indodax', label: 'Indodax', path: 'M4 19V5m0 14h16M8 15l4-5 4 2 4-7' },
   { id: 'ops', label: 'Ops', path: 'M4 7h16M7 4v6m10 4v6M4 17h16' },
-  { id: 'book', label: 'Portfolio', path: 'M4 5h7l1 2 1-2h7v15h-7l-1 1-1-1H4zM12 7v14' },
   { id: 'lessons', label: 'Lessons', path: 'm4 8 8-4 8 4-8 4zM7 10v6l5 3 5-3v-6' },
   { id: 'log', label: 'Log', path: 'M6 3h12v18H6zM9 8h6m-6 4h6m-6 4h4' },
   { id: 'history', label: 'History', path: 'M3 11a9 9 0 1 1 2.6 7M3 4v7h7m2-5v6l4 2' }
@@ -46,7 +45,6 @@ export function WorkspaceTools({ state, command, onActiveChange }: { state: Desk
       <div className="tool-pane" id="pane-ops" hidden={active !== 'ops'}><DeskOps state={state} /></div>
       {active === 'indodax' && <div className="tool-pane" id="pane-indodax"><Indodax /></div>}
       {active === 'providers' && <div className="tool-pane" id="pane-providers"><ProviderProfiles /></div>}
-      <div className="tool-pane" id="pane-book" hidden={active !== 'book'}><Portfolio state={state} command={command} /></div>
       <div className="tool-pane" id="pane-lessons" hidden={active !== 'lessons'}><Lessons state={state} /></div>
       <div className="tool-pane" id="pane-log" hidden={active !== 'log'}><TradeLog state={state} active={active === 'log'} /></div>
       <div className="tool-pane" id="pane-history" hidden={active !== 'history'}><TradeLog state={state} active={active === 'history'} view="history" /></div>

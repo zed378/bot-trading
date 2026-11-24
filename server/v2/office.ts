@@ -178,7 +178,7 @@ export function createInitialOfficeState(options: {
       cycles: 0,
       lastCycleAt: 0,
       running: false,
-      symbols: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ZECUSDT'],
+      symbols: ['BTCIDR', 'ETHIDR', 'SOLIDR'],
       maxHoldHours: 0
     },
     reports: [],
@@ -226,7 +226,7 @@ export function createInitialOfficeState(options: {
       execution: []
     },
     roomHistory: [],
-    watchlist: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ZECUSDT'],
+    watchlist: ['BTCIDR', 'ETHIDR', 'SOLIDR'],
     fightThreshold: 0.35,
     debateMode: 'normal',
     lastCycle: null,

@@ -2,7 +2,7 @@ import type express from 'express';
 import { safe } from '../redact.js';
 import { formatReportCard, deskOpenPnl } from './channel-text.js';
 import { isLocalLoopbackClient, type OfficeRuntime } from './contracts.js';
-import { broadcastChannelMessage } from './channels.js';
+import { broadcastChannelMessage } from './telegram.js';
 import type { Report } from '../../shared/office.js';
 
 export type { Report };

@@ -1,5 +1,5 @@
 import type { IndodaxAnalysis, IndodaxTimeframe } from '../../shared/indodax.js';
-import { ema, rsi } from '../strategy.js';
+import { ema, rsi } from './indicators.js';
 import type { IndodaxPublicClient } from './indodax.js';
 
 export async function analyzeIndodax(client: Pick<IndodaxPublicClient, 'market'>, symbol: string, tf: IndodaxTimeframe): Promise<IndodaxAnalysis> {
