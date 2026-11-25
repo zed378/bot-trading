@@ -9,7 +9,8 @@ import { DecimalStringSchema } from '../contracts.js';
 import { episodeStats, roundTripNetPerUnit, ROUND_TRIP_MIN_EDGE } from '../../market/indodax-params.js';
 
 const budgetSchema = z.string().regex(/^\d{1,12}(?:\.\d{1,8})?$/).refine(v => Number(v) > 0);
-const startSchema = z.object({ symbol: z.string().max(32), budget: budgetSchema, intervalMin: z.number().int().min(1).max(1440) }).strict();
+const MAX_STOP_DISTANCE = 0.5;
+const startSchema =z.object({ symbol: z.string().max(32), budget: budgetSchema, intervalMin: z.number().int().min(1).max(1440) }).strict();
 // cost and feeRate are quote-currency values; feeRate is a fraction (0.003 = 0.3%) or null when the pair publishes no fee.
 type PaperPosition = { quantity: string; entry: string; stop: string; target: string | null; cost: string; feeRate: string | null };
 type PaperTrade = { side: 'BUY' | 'SELL'; price: string; quantity: string; reason: string; at: number };
@@ -174,6 +175,11 @@ export function mountIndodaxPaper(app: express.Express, runtime: OfficeRuntime, 
           !pair.quantityIncrement || !pair.minQuantity || !pair.minQuote ||
           [pair.quantityIncrement, pair.minQuantity, pair.minQuote].some(value => cmp(value, '0') <= 0)) {
         state.lastAction = 'Entry skipped: invalid stop or missing Indodax pair rules';
+        return;
+      }
+      // A stop far below the entry usually means a price in the wrong scale (for example USD for an IDR pair).
+      if (Number(stop.data) < Number(fresh.ask) * (1 - MAX_STOP_DISTANCE)) {
+        state.lastAction = `Entry skipped: stop ${stop.data} is more than ${MAX_STOP_DISTANCE * 100}% below the entry ${fresh.ask}`;
         return;
       }
       const quantity = quantize(divDecimals(divDecimals(state.cash, '2'), fresh.ask, 24), pair.quantityIncrement, 'floor');

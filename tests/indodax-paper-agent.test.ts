@@ -84,6 +84,29 @@ describe('Indodax agent PAPER session', () => {
     } finally { worker.stop(); }
   });
 
+  it('skips an entry whose stop is implausibly far below the entry price', async () => {
+    const runner = vi.fn(async () => ({
+      status: 'completed' as const,
+      verdict: { action: 'OPEN_LONG' as const, thesis: { stop: '5', tp: null, orderType: 'MARKET' }, rejectionReason: null }
+    }));
+    const { base, worker } = await start('PAPER', runner);
+    try {
+      await fetch(base + '/api/indodax/paper-agent/start', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ symbol: 'BTCUSDT', budget: '1000', intervalMin: 1 })
+      });
+      let status: any;
+      for (let i = 0; i < 40; i++) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+        status = await (await fetch(base + '/api/indodax/paper-agent')).json();
+        if (status.lastCycleAt) break;
+      }
+      expect(status.position).toBeNull();
+      expect(status.trades).toHaveLength(0);
+      expect(status.lastAction).toContain('below the entry');
+    } finally { worker.stop(); }
+  });
+
   it('refuses to start outside PAPER and never submits a venue order', async () => {
     const runner = vi.fn();
     const { base, worker } = await start('LIVE', runner);
