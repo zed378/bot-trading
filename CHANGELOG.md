@@ -2,7 +2,7 @@
 
 All notable changes to Trading Agent Mpu Gandring are documented in this file.
 
-## [Indodax-Only Rework] - 2026-11-24
+## [v0.0.0.5.0] - 2026-11-25 (Indodax-Only Rework)
 
 ### Added & Improved
 - Narrowed the entire desk, contracts (`VenueId = 'indodax'`), settings, secrets, Office UI, CLI, and PostgreSQL schema to **Indodax spot only** (`OPEN_LONG`, `HOLD`, `CLOSE`; IDR and USDT quotes kept strictly separate).
