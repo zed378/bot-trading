@@ -1,4 +1,4 @@
-import { API_PROVIDERS, type ApiProviderId } from './schema.js';
+import { type ApiProviderId } from './schema.js';
 import { LOCAL_CLI_AGENTS } from '../agents/local.js';
 
 export const MODEL_CATALOG_DATE = '2026-11-01';

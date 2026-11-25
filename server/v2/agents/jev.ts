@@ -224,7 +224,7 @@ export class JevClient {
                   TRENDING_BULL: 'Higher-timeframe (1h/4h/1d) structure or momentum leans bullish (including pullbacks/retests within an uptrend)',
                   TRENDING_BEAR: 'Higher-timeframe (1h/4h/1d) structure or momentum leans bearish (including bounces/retests within a downtrend)',
                   RANGING: 'Price consolidating or mean-reverting between intraday support and resistance with mixed timeframe momentum',
-                  VOLATILE: 'High-volatility expansion or wide liquidation wicks across timeframes',
+                  VOLATILE: 'High-volatility expansion or wide-range candles across timeframes',
                   UNCERTAIN: 'Corrupted, missing, or completely uninitialized market data only (never use UNCERTAIN for normal timeframe conflicts or consolidation)'
                 }
               },
@@ -422,14 +422,14 @@ export class JevClient {
     } | undefined;
     const obs = rawState?.observations ?? [];
     const bulls = obs.filter((o) => o.stance === 'LONG').length;
-    const bears = obs.filter((o) => o.stance === 'SHORT').length;
+    const holds = obs.filter((o) => o.stance === 'HOLD' || o.stance === 'CLOSE').length;
     const hasOpposing = Boolean(rawState?.marketSummary?.opposingFacts?.length || rawState?.opposingFacts?.length);
-    const regime = bulls > bears ? 'TRENDING_BULL' : bears > bulls ? 'TRENDING_BEAR' : (hasOpposing ? 'RANGING' : 'UNCERTAIN');
+    const regime = bulls > holds ? 'TRENDING_BULL' : (hasOpposing ? 'RANGING' : 'UNCERTAIN');
 
     return {
       status: 'unavailable',
       reviewId: fallbackId,
-      claimRefs: [`heuristic:bulls=${bulls}`, `heuristic:bears=${bears}`],
+      claimRefs: [`heuristic:bulls=${bulls}`, `heuristic:holds=${holds}`],
       contraryRefs: [],
       reason: `${note} · Local regime heuristic: ${regime}`,
       market_regime: regime

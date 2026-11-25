@@ -1,13 +1,7 @@
 import type express from 'express';
 import { z } from 'zod';
 import type { AgentId } from '../contracts.js';
-import {
-  LOCAL_CLI_AGENTS,
-  buildLocalCliEnv,
-  runLocalCliInference,
-  type LocalCliAgentSpec
-} from '../agents/local.js';
-import { safe } from '../../redact.js';
+import { LOCAL_CLI_AGENTS, buildLocalCliEnv, runLocalCliInference } from '../agents/local.js';
 import type { SetupApiDeps } from './setup.js';
 import { existsSync } from 'node:fs';
 import path from 'node:path';

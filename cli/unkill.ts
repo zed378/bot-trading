@@ -1,7 +1,7 @@
 // npm run unkill -- --yes
 // Clears the persisted kill switch. Run it on the machine itself, then restart the office to trade again.
 // There is deliberately no HTTP route or gb command for this: agents can press the kill switch, only the owner releases it.
-import { clearKill, readKill, DEFAULT_KILL_FILE } from '../server/killswitch.js';
+import { clearKill, readKill, DEFAULT_KILL_FILE } from '../server/v2/kill-file.js';
 
 export function unkill(argv: string[], file = process.env.KILL_SWITCH_FILE || DEFAULT_KILL_FILE): { ok: boolean; text: string } {
   const rec = readKill(file);
@@ -61,7 +61,7 @@ async function main(argv: string[]): Promise<void> {
   console.log(
     notified.reached
       ? `${r.text} ${notified.text}`
-      : `${r.text} Restart the office (npm run office or npm run trade) to trade again.`
+      : `${r.text} Restart the office (npm run dev) to trade again.`
   );
   process.exit(0);
 }

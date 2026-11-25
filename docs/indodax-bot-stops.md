@@ -2,7 +2,7 @@
 
 ## Keputusan Owner
 
-Owner menyetujui referensi SL disimpan dalam database dan bot menjual aset ketika harga menyentuh SL, dengan konsekuensi ketergantungan pada bot/komputer/jaringan/API. Pengecualian ini khusus untuk **pemantau penutupan spot Indodax**. Ini bukan bukti stop order tersimpan di exchange. Guard exchange-side stop untuk venue/jalur entry lain tetap berlaku.
+Owner menyetujui referensi SL disimpan dalam database dan bot menjual aset ketika harga menyentuh SL, dengan konsekuensi ketergantungan pada bot/komputer/jaringan/API. Pengecualian ini khusus untuk **pemantau penutupan spot Indodax**. Ini bukan bukti stop order tersimpan di exchange.
 
 Strategi, Risk Engine dan logika keputusan dari proyek referensi tidak digunakan. Kontrak HTTP Indodax menjadi referensi integrasi; penutupan memakai `ExecutionGateway.close` Trading Agent Mpu Gandring yang sudah ada.
 

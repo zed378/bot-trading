@@ -1,4 +1,4 @@
-/** Plain-text command cards for Discord and Telegram. Emoji markers, no markdown. */
+/** Plain-text command cards for Telegram. Emoji markers, no markdown. */
 
 const LINE = '────────';
 
@@ -19,7 +19,6 @@ export function pnlMark(n: number | null | undefined): string {
 
 export function modeMark(mode: string): string {
   if (mode === 'LIVE') return '🟢 LIVE';
-  if (mode === 'TESTNET') return '🟡 TESTNET';
   return '⚪ PAPER';
 }
 
@@ -123,11 +122,11 @@ export function formatPositionsCard(input: {
           ? '⚪ paper'
           : '❔ unverified';
     return [
-      `${i + 1}. ${pnlMark(pnl)} ${p.symbol} ${p.side}${p.leverage ? ` ${p.leverage}x` : ''}`,
-      `Qty ${p.qty} · Margin ${money(p.margin ?? 0)}`,
+      `${i + 1}. ${pnlMark(pnl)} ${p.symbol} ${p.side}`,
+      `Qty ${p.qty}`,
       `Entry ${p.entry} · Mark ${p.mark ?? p.entry}`,
       `${stopMark} SL ${stop} · TP ${p.tp ?? 'none'} · ${prot}`,
-      `PnL ${signedMoney(pnl)} USDT${pctText}`
+      `PnL ${signedMoney(pnl)}${pctText}`
     ].join('\n');
   });
   const more = input.positions.length > 8 ? `\n${LINE}\n+${input.positions.length - 8} more in the office` : '';

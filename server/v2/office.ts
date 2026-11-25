@@ -27,14 +27,14 @@ export const ROLE_PRESENTATION: Record<AgentId, RolePresentation> = {
   market: {
     id: 'market',
     name: 'Market Analyst',
-    title: 'Tape, Momentum & Orderflow Hunter',
+    title: 'Tape, Momentum & Volume Reader',
     color: '#38bdf8',
     desk: { x: 15, y: 48 }
   },
   research: {
     id: 'research',
     name: 'Research Analyst',
-    title: 'Whale Flow, Macro & Catalyst Strategist',
+    title: 'News, Macro & Catalyst Investigator',
     color: '#a78bfa',
     desk: { x: 84, y: 43 }
   },
@@ -111,11 +111,11 @@ export function createInitialOfficeState(options: {
   const startedAt = options.startedAt ?? Date.now();
   return {
     runtimeGeneration: 'v2',
-    version: options.version ?? '0.0.0.4.32',
+    version: options.version ?? '0.0.0.5.0',
     app: 'Trading Agent Mpu Gandring',
     mode: 'PAPER',
     appMode: 'local',
-    marketSource: 'bybit',
+    marketSource: 'indodax',
     nativeMarketPreferred: true,
     bridgeEnabled: false,
     paused: false,
@@ -178,7 +178,7 @@ export function createInitialOfficeState(options: {
       cycles: 0,
       lastCycleAt: 0,
       running: false,
-      symbols: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ZECUSDT'],
+      symbols: ['BTCIDR', 'ETHIDR', 'SOLIDR'],
       maxHoldHours: 0
     },
     reports: [],
@@ -190,7 +190,7 @@ export function createInitialOfficeState(options: {
     scorecard: createInitialScorecard(),
     learning: { on: true, scan: true, promoteAfter: 3 },
     dailyLoss: { limitPct: 10, startEquity: 0, hit: false },
-    tradingview: { widget: false, prefix: 'BYBIT', webhook: false },
+    tradingview: { widget: false, prefix: 'INDODAX', webhook: false },
     agentEvents: false,
     signals: [],
     agents: createInitialAgents(),
@@ -226,7 +226,7 @@ export function createInitialOfficeState(options: {
       execution: []
     },
     roomHistory: [],
-    watchlist: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ZECUSDT'],
+    watchlist: ['BTCIDR', 'ETHIDR', 'SOLIDR'],
     fightThreshold: 0.35,
     debateMode: 'normal',
     lastCycle: null,

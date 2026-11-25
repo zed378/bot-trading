@@ -9,7 +9,11 @@
  * - Order Block (OB) institutional supply & demand zones.
  */
 
-import { structuralPrice } from '../money.js';
+/** Analysis geometry. Execution still rounds to the instrument tick. */
+function structuralPrice(v: number): number {
+  if (!Number.isFinite(v) || v === 0) return v;
+  return Number(v.toPrecision(12));
+}
 
 export interface SMCSwingPoint {
   index: number;

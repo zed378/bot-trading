@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { createChart, CandlestickSeries, HistogramSeries, LineStyle, type IChartApi, type ISeriesApi, type IPriceLine, type UTCTimestamp, type Time, type MouseEventParams } from 'lightweight-charts';
 import type { CandleData, DeskState, ChartTimeframe } from '../types';
 import { POPULAR_SYMBOLS } from '../types';
-import { TradingViewChart } from './TradingViewChart';
 import { fmt, fmtPx } from './format';
 import { useI18n } from '../i18n';
 
@@ -15,9 +14,7 @@ interface Props { state: DeskState; symbol: string; onSymbol: (s: string) => voi
 export function PriceChart({ state, symbol, onSymbol, data, theme, timeframe, onTimeframe, error, onRetry }: Props) {
   const { t, lang } = useI18n();
   const id = lang === 'id';
-  const [view, setView] = useState<'desk' | 'tv'>(() => state.nativeMarketPreferred ? 'desk' : state.tradingview?.widget ? 'tv' : 'desk');
-  useEffect(() => { setView(state.nativeMarketPreferred ? 'desk' : state.tradingview?.widget ? 'tv' : 'desk'); }, [state.venue?.name, state.nativeMarketPreferred, state.tradingview?.widget]);
-  const tv = !!state.tradingview?.widget && view === 'tv';
+  const tv = false;
   const box = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const series = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -125,10 +122,6 @@ export function PriceChart({ state, symbol, onSymbol, data, theme, timeframe, on
           {tick && <span className={`chip-change ${tick.change24hPct >= 0 ? 'up' : 'down'}`}>{tick.change24hPct >= 0 ? '+' : ''}{fmt(tick.change24hPct)}% 24h</span>}
           <span className="muted small">{timeframe} {id ? 'candle tertutup' : 'closed candles'} · {data ? (data.example ? 'sample data · EXAMPLE' : data.source) : error ? (id ? 'Tidak tersedia' : 'Unavailable') : t('loading')}</span>
         </div>
-        {state.tradingview?.widget && <div className="seg">
-          <button className={view === 'desk' ? 'on' : ''} onClick={() => setView('desk')}>{t('deskChart')}</button>
-          <button className={view === 'tv' ? 'on' : ''} onClick={() => setView('tv')}>TradingView</button>
-        </div>}
         <div className="seg chart-symbols-bar">
           {state.watchlist.map((s) => <button key={s} className={s === symbol ? 'on' : ''} onClick={() => onSymbol(s)}>{s.replace('USDT', '')}</button>)}
           <select
@@ -147,7 +140,7 @@ export function PriceChart({ state, symbol, onSymbol, data, theme, timeframe, on
             <optgroup label={t('watchlistGroup')}>
               {state.watchlist.map((s) => <option key={s} value={s}>{s}</option>)}
             </optgroup>
-            <optgroup label={t('popularPerpsGroup')}>
+            <optgroup label="Indodax">
               {POPULAR_SYMBOLS.filter((s) => !state.watchlist.includes(s)).map((s) => <option key={s} value={s}>{s}</option>)}
             </optgroup>
             <option value="__custom__">{t('customTokenOpt')}</option>
@@ -166,7 +159,7 @@ export function PriceChart({ state, symbol, onSymbol, data, theme, timeframe, on
       </div>
       <div className="chart-toolbar">
         <div className="chart-timeframes" role="group" aria-label={id ? 'Interval candle' : 'Candle timeframe'}>
-          {(['1m', '5m', '15m', '1h', '4h', '1d'] as const).map((tf) => <button key={tf} aria-pressed={timeframe === tf} onClick={() => onTimeframe(tf)}>{tf}</button>)}
+          {(['4h', '1d'] as const).map((tf) => <button key={tf} aria-pressed={timeframe === tf} onClick={() => onTimeframe(tf)}>{tf}</button>)}
         </div>
         {!tv && <div className="chart-actions">
           <button aria-pressed={showLevels} onClick={() => setShowLevels(!showLevels)}>Entry / SL / TP</button>
@@ -195,7 +188,6 @@ export function PriceChart({ state, symbol, onSymbol, data, theme, timeframe, on
         </div>)}
       </div>}
       {!tv && data && <details className="chart-data"><summary>{id ? 'Data candle' : 'Candle data'} ({Math.min(20, data.candles.length)})</summary><div className="chart-data-scroll"><table><caption>{symbol} / {timeframe} / {data.source}{data.example ? ' / SAMPLE' : ''}</caption><thead><tr>{['Time', 'Open', 'High', 'Low', 'Close', 'Volume'].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead><tbody>{data.candles.slice(-20).reverse().map((c) => <tr key={c.time}><td>{localDay(c.time)} {localTime(c.time)}</td>{[c.open, c.high, c.low, c.close].map((n, i) => <td key={i}>{fmtPx(n)}</td>)}<td>{fmt(c.volume ?? 0)}</td></tr>)}</tbody></table></div></details>}
-      {tv && <TradingViewChart symbol={symbol} prefix={state.tradingview.prefix} theme={theme} timeframe={timeframe} />}
       {!tv && positions.length === 0 && <p className="chart-note">{t('noOpenPositionOn')} {symbol}. {t('chartLinesNote')}</p>}
     </section>
   );

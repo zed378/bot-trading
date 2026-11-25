@@ -1,8 +1,9 @@
 {
   "name": "trading-agent-mpu-gandring",
-  "version": "0.4.32",
-  "appVersion": "0.0.0.4.32",
+  "version": "0.5.0",
+  "appVersion": "0.0.0.5.0",
   "changelog": [
+    "v0.0.0.5.0: Indodax-only rework. One venue (Indodax spot, long-only, IDR and USDT never mixed), one market context for every debate and PAPER cycle, Telegram as the only chat channel, bot-managed stop-loss monitor kept, all other venues, perpetual futures, wallet and bridge code removed, schema v4 drops the bridge tables.",
     "v0.0.0.4.32: added 10 OpenRouter Decisions API models (5 Top Token Usage and 5 Top Tier) to Jev setup with runtime hot-reload and .env persistence, fixed CoinMarketCap v3 live quote schema coercion and primary-rank symbol filtering, fixed OKX public instruments/quote endpoints without credentials, aligned V2 agent SL/TP system prompt contract with direct entry price percentage math, and hardened claude/codex/cline headless CLI spawn flags.",
     "v0.0.0.4.31: local CLI Windows spawn ENAMETOOLONG resolution via Node shim unwrapping and stdin/file prompt transport, tactical desk SL/TP preservation from debate consensus, deliberation robustness on CLI timeout, symbol-isolated critical news filtering, chronological chat message ordering, and lean multi-timeframe SMC prompt context.",
     "v0.0.0.4.30: human-paced sequential mock deliberation (~1.5s per turn), duplicate position prevention across PAPER and LIVE modes, removal of 2-slot candidate promotion cap allowing full N=4 allocation, watchlist screening announcement to desk room, and Discord /ask two-word role alias support.",
@@ -44,15 +45,11 @@
     "Mpu Typed Event Bus, Inventory Skew Quoting, Decimal Precision Arithmetic, and Resting Stop Guarantee.",
     "Mpu Native 5-Stage Gate Verification Engine with Zero Phantom Dependencies."
   ],
-  "description": "Trading Agent Mpu Gandring: a desk of AI trading agents that argue, debate and (cartoon) fight over every trade, then execute using Owner profile sizing and margin-based SL/TP. Paper by default; testnet or live after setup. Comes with a cozy virtual office UI.",
+  "description": "Trading Agent Mpu Gandring: six AI agents that debate Indodax spot pairs, simulate trades in PAPER, and run a bot-managed stop-loss monitor. Indodax only.",
   "license": "MIT",
   "author": "Abrur Alaina",
   "type": "module",
-  "bin": {
-    "mpu": "bin/mpu.mjs"
-  },
   "files": [
-    "bin",
     "dist",
     "cli",
     "server",
@@ -68,39 +65,23 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev:local": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/dev-local.ps1",
     "prepack": "npm run build",
+    "dev:local": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/dev-local.ps1",
     "dev": "concurrently -k --kill-others-on-fail -n server,web -c yellow,cyan \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "tsx watch server/index.ts",
     "dev:web": "vite",
     "build": "tsc -p tsconfig.server.json && vite build",
     "build:rebirth": "tsc -p tsconfig.rebirth.json",
     "start": "node dist/server/server/index.js",
-    "debate": "tsx cli/session-entry.ts debate",
-    "backtest": "tsx cli/session-entry.ts backtest",
-    "stage-gate": "node scripts/mpu-gate.mjs --independent",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.rebirth.json --noEmit",
-    "evidence:live": "tsx scripts/audit-live-records.ts",
-    "screenshot": "node scripts/screenshot.mjs",
-    "setup": "tsx cli/session-entry.ts setup",
-    "doctor": "tsx cli/session-entry.ts doctor",
     "indodax": "tsx cli/indodax.ts",
     "indodax:stops": "tsx cli/indodax-stops.ts",
     "db:migrate": "tsx cli/migrate-postgres.ts",
-    "docs:setup": "tsx scripts/gen-setup-docs.ts",
-    "gb": "tsx cli/session-entry.ts gb",
     "unkill": "tsx cli/session-entry.ts unkill",
     "kill": "tsx cli/session-entry.ts kill",
-    "channels": "tsx cli/session-entry.ts channels",
     "office": "concurrently -k --raw -n server,web \"npm:dev:server\" \"npm:dev:web\"",
-    "office:status": "tsx cli/session-entry.ts office-status",
-    "trade": "tsx cli/session-entry.ts trade",
-    "autostart:install": "tsx cli/session-entry.ts autostart install",
-    "autostart:remove": "tsx cli/session-entry.ts autostart remove",
-    "autostart:status": "tsx cli/session-entry.ts autostart status",
-    "bench:models": "tsx cli/session-entry.ts bench-models",
-    "version": "tsx cli/session-entry.ts version"
+    "office:status": "tsx cli/session-entry.ts office-status"
   },
   "keywords": [
     "trading",
@@ -112,16 +93,10 @@
     "crypto"
   ],
   "dependencies": {
-    "@msgpack/msgpack": "^3.1.3",
-    "@noble/curves": "^2.4.0",
-    "@scure/base": "^2.4.0",
     "dotenv": "^18.0.8",
     "express": "^5.3.0",
     "lightweight-charts": "^5.2.1",
     "pg": "^8.23.1",
-    "playwright-core": "^1.64.1",
-    "starknet": "^10.8.0",
-    "viem": "^2.57.7",
     "ws": "^8.22.0",
     "zod": "^4.6.7"
   },
@@ -140,6 +115,7 @@
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "playwright-core": "^1.64.1"
   }
 }

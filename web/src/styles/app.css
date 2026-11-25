@@ -590,8 +590,7 @@ code { font-family: var(--font-mono); font-size: 0.9em; color: var(--wood-dark);
 .tv-box, .tv-box iframe { height: 100% !important; width: 100% !important; }
 @media (prefers-reduced-motion: reduce) { .badge.live-badge::before { animation: none; } }
 
-/* ---------- auto badge, testnet badge, reports ---------- */
-.badge.testnet-badge { background: var(--brass, #c9973c); color: #fff; border-color: transparent; font-weight: 800; letter-spacing: .04em; font-size: 11px; padding: 3px 10px; }
+/* ---------- auto badge, reports ---------- */
 .badge.auto-badge { background: var(--teal, #3f9e97); color: #fff; border-color: transparent; font-weight: 800; font-size: 11px; padding: 3px 10px; }
 .panel.reports .panel-head { gap: 8px; }
 .panel.reports .panel-head .muted { margin-left: auto; }
@@ -604,7 +603,6 @@ code { font-family: var(--font-mono); font-size: 0.9em; color: var(--wood-dark);
 .report-head .muted { margin-left: auto; font-size: var(--fs-xs); }
 .report .tag { font-size: 10px; font-weight: 800; padding: 1px 7px; border-radius: 999px; background: var(--sage, #9db48f); color: #fff; }
 .report .tag.mode-live { background: var(--short); }
-.report .tag.mode-testnet { background: var(--brass, #c9973c); }
 .report-body { padding: 0 10px 10px; font-size: var(--fs-xs, 12px); }
 .report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-bottom: 6px; }
 .report-body h4 { margin: 8px 0 2px; font-family: var(--font-head); font-size: 12px; }

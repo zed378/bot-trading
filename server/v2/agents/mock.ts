@@ -54,8 +54,8 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
         reply = 'Desk Lead online. Portfolio dalam pengawasan ketat dan seluruh 6 agen aktif di pos masing-masing. Ada instruksi khusus, Boss?';
       }
     } else if (role === 'risk') {
-      if (q.includes('stop') || q.includes('rugi') || q.includes('loss') || q.includes('leverage')) {
-        reply = 'Risk gate aktif dengan profil Owner. Batas leverage, safety net modal, dan kewajiban resting stop loss ditegakkan tanpa kompromi.';
+      if (q.includes('stop') || q.includes('rugi') || q.includes('loss')) {
+        reply = 'Risk gate aktif dengan profil Owner. Batas rugi harian, ukuran order, dan kewajiban stop loss ditegakkan tanpa kompromi.';
       } else {
         reply = 'Risk Manager siaga. Setiap usulan tiket dari Execution wajib melalui evaluasi risiko sebelum diizinkan masuk pasar.';
       }
@@ -66,7 +66,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
     } else if (role === 'strategist') {
       reply = 'Trading Strategist siap. Indikator EMA9/21/50 dan level invalidasi teknikal siap memvalidasi konfirmasi setup entri.';
     } else if (role === 'execution') {
-      reply = 'Execution Trader standby. Order dieksekusi dengan presisi tinggi beserta stop loss dan take profit langsung di exchange book.';
+      reply = 'Execution Trader standby. Order market dieksekusi dengan presisi tinggi beserta stop loss dan take profit yang dipantau bot.';
     } else {
       reply = `Agent ${role} standby dan siap bertugas.`;
     }
@@ -90,7 +90,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
 
     // Check whether this symbol already has an active open position being managed
     const hasPosition = /"hasPosition"\s*:\s*true/i.test(user);
-    const positionSide = (user.match(/"positionSide"\s*:\s*"(LONG|SHORT)"/i)?.[1] ?? 'LONG') as 'LONG' | 'SHORT';
+    const positionSide = 'LONG';
 
     // Extract market summary metrics from prompt context
     let lastPrice = 75000;
@@ -106,10 +106,10 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
     } catch {}
 
     const isBull = change24h >= 0;
-    const directionalStance: 'LONG' | 'SHORT' = isBull ? 'LONG' : 'SHORT';
-    const oppositeStance: 'LONG' | 'SHORT' = isBull ? 'SHORT' : 'LONG';
-    const stopRatio = isBull ? 0.975 : 1.025;
-    const tpRatio = isBull ? 1.05 : 0.95;
+    const directionalStance: 'LONG' | 'HOLD' = isBull ? 'LONG' : 'HOLD';
+    const oppositeStance: 'HOLD' | 'LONG' = isBull ? 'HOLD' : 'LONG';
+    const stopRatio = 0.975;
+    const tpRatio = 1.05;
     const priceDecimals = lastPrice >= 100 ? 2 : lastPrice >= 1 ? 4 : 6;
     const stopPrice = Number((lastPrice * stopRatio).toFixed(priceDecimals));
     const tpPrice = Number((lastPrice * tpRatio).toFixed(priceDecimals));
@@ -153,7 +153,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
           confidence: 0.82,
           claimRefs: [`${symbol}-pos-exec`],
           contraryRefs: [],
-          reasoning: `Tidak ada intervensi order baru. Posisi aktif ${symbol} dipantau ketat dengan resting stop loss di exchange.`
+          reasoning: `Tidak ada intervensi order baru. Posisi aktif ${symbol} dipantau ketat dengan stop loss yang dipantau bot.`
         });
       }
       if (role === 'risk') {
@@ -200,7 +200,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
           confidence: 0.62,
           claimRefs: [`${symbol}-macro-caution`],
           contraryRefs: [],
-          reasoning: `Perlu waspada volatilitas jangka pendek pada ${symbol}. Rasio derivatif mendekati batas jenuh dan open interest melonjak tajam.`
+          reasoning: `Perlu waspada volatilitas jangka pendek pada ${symbol}. Volume candle terakhir melonjak tajam dan harga mendekati area jenuh.`
         });
       }
       // In challenge/rebuttal phase, catalyst confirmation resolves consensus
@@ -224,7 +224,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
         proposedStop: String(stopPrice),
         proposedTp: String(tpPrice),
         invalidationPredicate: {
-          kind: isBull ? 'PRICE_BELOW' : 'PRICE_ABOVE',
+          kind: 'PRICE_BELOW',
           level: String(stopPrice),
           description: `Breakout invalidation level at ${stopPrice}`
         },
@@ -242,7 +242,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
         proposedTp: String(tpPrice),
         claimRefs: [`${symbol}-exec-ticket`],
         contraryRefs: [],
-        reasoning: `Candidate order ticket disiapkan: MARKET order ${directionalStance} ${symbol} dengan resting stop di ${stopPrice} dan take profit di ${tpPrice}.`
+        reasoning: `Candidate order ticket disiapkan: MARKET order ${directionalStance} ${symbol} dengan stop di ${stopPrice} dan take profit di ${tpPrice}.`
       });
     }
 
@@ -254,7 +254,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
         confidence: 0.86,
         claimRefs: [`${symbol}-risk-pass`],
         contraryRefs: [],
-        reasoning: `Ukuran posisi dan toleransi leverage ${symbol} berada dalam batas aman Owner profile. Safety net modal terjaga. APPROVED.`
+        reasoning: `Ukuran order dan batas rugi harian ${symbol} berada dalam batas aman Owner profile. APPROVED.`
       });
     }
 
@@ -273,7 +273,7 @@ export async function generateMockAgentReply(req: MockAgentReplyRequest): Promis
         },
         claimRefs: [`${symbol}-consensus`],
         contraryRefs: [],
-        reasoning: `Konsensus 3 analis tercapai searah ${directionalStance}. Risk gate menyetujui tiket eksekusi. Keputusan: OPEN_${directionalStance} ${symbol}.`
+        reasoning: `Konsensus 3 analis tercapai searah ${directionalStance}. Risk gate menyetujui tiket eksekusi. Keputusan: ${directionalStance === 'LONG' ? 'OPEN_LONG' : 'HOLD'} ${symbol}.`
       });
     }
 

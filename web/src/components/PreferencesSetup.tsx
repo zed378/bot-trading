@@ -3,7 +3,7 @@ import { officeFetch as fetch, applyAndRestartOffice } from '../officeApi';
 import { useI18n } from '../i18n';
 
 interface Preferences {
-  appMode: 'local' | 'grokbot';
+  appMode: 'local';
   balance: number;
   safetyNet: number;
   n: number;
@@ -110,9 +110,9 @@ export function PreferencesSetup() {
             <button onClick={() => { setMessage(''); setEditing(true); }}>{t('setupDeskEditBtn')}</button>
           </div>
           <dl className="setup-summary">
-            <div><dt>{t('setupDeskAgentSource')}</dt><dd>{values.appMode === 'local' ? (lang === 'id' ? 'Model / agen lokal terautentikasi' : 'Models / signed-in local agents') : (lang === 'id' ? 'Tim Grok Bot eksternal' : 'External Grok Bot team')}</dd></div>
-            <div><dt>{lang === 'id' ? 'Saldo paper' : 'Paper balance'}</dt><dd>{values.balance} USDT</dd></div>
-            <div><dt>{t('safetyNet')}</dt><dd>{values.safetyNet} USDT</dd></div>
+            <div><dt>{t('setupDeskAgentSource')}</dt><dd>{lang === 'id' ? 'Model / agen lokal terautentikasi' : 'Models / signed-in local agents'}</dd></div>
+            <div><dt>{lang === 'id' ? 'Saldo paper' : 'Paper balance'}</dt><dd>{values.balance}</dd></div>
+            <div><dt>{t('safetyNet')}</dt><dd>{values.safetyNet}</dd></div>
             <div><dt>{lang === 'id' ? 'Order maksimal terbuka' : 'Maximum open orders'}</dt><dd>{values.n}</dd></div>
             <div><dt>{lang === 'id' ? 'Batas rugi harian' : 'Daily loss cap'}</dt><dd>{values.dailyLoss}%</dd></div>
             <div><dt>{lang === 'id' ? 'Batas hold posisi' : 'Max position hold'}</dt><dd>{values.maxHoldHours ? `${values.maxHoldHours} ${lang === 'id' ? 'jam' : 'hours'}` : (lang === 'id' ? 'Mati (tanpa batas waktu)' : 'Off (no time limit)')}</dd></div>
@@ -122,13 +122,6 @@ export function PreferencesSetup() {
         </>
       )}
       <form hidden={!editing} className="setup-keys" onChange={() => setMessage('')} onSubmit={(e) => { e.preventDefault(); void save(); }}>
-        <label>
-          {t('setupDeskAgentSource')}
-          <select value={values.appMode} onChange={(e) => setValues({ ...values, appMode: e.target.value as Preferences['appMode'] })}>
-            <option value="local">{t('setupDeskSourceLocal')}</option>
-            <option value="grokbot">{t('setupDeskSourceGrokbot')}</option>
-          </select>
-        </label>
         <div className="settings-grid">
           {numeric('balance', t('setupDeskPaperBalance'), 0)}
           {numeric('safetyNet', t('setupDeskSafetyNet'), 0, values.balance)}
@@ -138,7 +131,6 @@ export function PreferencesSetup() {
           {numeric('debateInterval', t('setupDeskDebateInterval'), 1, 1440)}
           {numeric('reportInterval', t('setupDeskReportInterval'), 1, 1440)}
         </div>
-        <p className="wallet-note">{lang === 'id' ? 'Pratinjau alokasi (Rumus Safety Net & Auto-Hedge):' : 'Allocation preview (Safety Net & Auto-Hedge Formula):'} {t('moneyTrade')} {(values.balance * 0.6).toFixed(2)} USDT (60%) · {t('safetyNet')} {values.safetyNet.toFixed(2)} USDT · {lang === 'id' ? 'per slot' : 'per slot'} {((Math.max(0, values.balance - values.safetyNet)) / (values.n || 1)).toFixed(2)} USDT · Trigger Auto-Hedge -{(values.safetyNet * 0.625).toFixed(2)} USDT · Buffer {(values.safetyNet * 0.375).toFixed(2)} USDT.</p>
         <label className="setup-check"><input type="checkbox" checked={values.auto} onChange={(e) => setValues({ ...values, auto: e.target.checked })} /> {t('setupDeskAutoScheduleCheck')}</label>
         <p className="field-help">{t('setupDeskAutoScheduleHelp')}</p>
         <div className="setup-nav">

@@ -138,15 +138,6 @@ function mergeSettings(base: OwnerSettings, patch: OwnerSettingsPatch): OwnerSet
   }
 
   const nextNetworkProfiles = { ...base.networkProfiles };
-  if (patch.networkProfiles?.testnet) {
-    nextNetworkProfiles.testnet = {
-      ...(base.networkProfiles.testnet ?? nextTrading),
-      ...patch.networkProfiles.testnet
-    };
-    if ('orderSizePct' in patch.networkProfiles.testnet && (patch.networkProfiles.testnet.orderSizePct === null || patch.networkProfiles.testnet.orderSizePct === undefined)) {
-      delete (nextNetworkProfiles.testnet as any).orderSizePct;
-    }
-  }
   if (patch.networkProfiles?.mainnet) {
     nextNetworkProfiles.mainnet = {
       ...(base.networkProfiles.mainnet ?? nextTrading),
@@ -200,7 +191,7 @@ export class SettingsService {
 
   private constructor(
     private readonly store: RuntimeStore,
-    private readonly secrets: SecretStore,
+    _secrets: SecretStore,
     initial: SettingsSnapshot,
     private readonly hooks: SettingsCoordinatorHooks = {}
   ) {
@@ -209,18 +200,15 @@ export class SettingsService {
 
   static parseLegacyEnv(env: Record<string, string | undefined>): OwnerSettings {
     const rawMode = (env.TRADING_MODE ?? 'PAPER').trim().toUpperCase();
-    const mode: TradingMode =
-      rawMode === 'LIVE' || rawMode === 'TESTNET' ? rawMode : 'PAPER';
+    const mode: TradingMode = rawMode === 'LIVE' ? 'LIVE' : 'PAPER';
 
-    const rawAppMode = (env.APP_MODE ?? 'local').trim().toLowerCase();
-    const appMode: AppMode = rawAppMode === 'grokbot' ? 'grokbot' : 'local';
+    const appMode: AppMode = 'local';
 
     const rawExchange = (env.EXCHANGE ?? '').trim().toLowerCase();
     const exchange: VenueId | null = (EXCHANGES as readonly string[]).includes(rawExchange)
       ? (rawExchange as VenueId)
-      : null;
-    const network: Network | null =
-      mode === 'LIVE' ? 'mainnet' : mode === 'TESTNET' ? 'testnet' : null;
+      : 'indodax';
+    const network: Network | null = mode === 'LIVE' ? 'mainnet' : null;
 
     const safetyNet = numOr(env.SAFETY_NET, 200);
     const maxPositions = Math.min(100, Math.max(1, Math.trunc(numOr(env.OPEN_ORDERS_N, DEFAULT_TRADING_SETTINGS.maxPositions))));
@@ -249,7 +237,7 @@ export class SettingsService {
       ? (rawProfile as TradingProfile)
       : 'current';
 
-    const watchlist = (env.WATCHLIST ?? 'BTCUSDT,ETHUSDT,SOLUSDT,ZECUSDT')
+    const watchlist = (env.WATCHLIST ?? 'BTCIDR,ETHIDR,SOLIDR')
       .split(',')
       .map((s) => s.trim().toUpperCase())
       .filter((s) => s.length >= 2);
@@ -291,7 +279,7 @@ export class SettingsService {
       return {
         provider,
         model,
-        route: (appMode === 'grokbot' ? 'GROK' : 'LOCAL') as 'LOCAL' | 'GROK' | 'MIRROR_READ_ONLY'
+        route: 'LOCAL' as const
       };
     };
 
@@ -308,17 +296,15 @@ export class SettingsService {
       },
       venue: {
         exchange,
-        network,
-        allowExperimentalLive: (env.ALLOW_EXPERIMENTAL_LIVE ?? '').trim() === 'yes',
-        asterEntryOrderType: (env.ASTER_ENTRY_ORDER_TYPE ?? '').trim().toUpperCase() === 'LIMIT_GTC' ? 'LIMIT_GTC' : 'MARKET'
+        network
       },
-      watchlist: watchlist.length > 0 ? watchlist : ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ZECUSDT'],
+      watchlist: watchlist.length > 0 ? watchlist : ['BTCIDR', 'ETHIDR', 'SOLIDR'],
       auto: {
         on: boolOr(env.AUTO_TRADING, false),
         intervalMin: Math.max(1, Math.trunc(numOr(env.DEBATE_INTERVAL_MIN, 15))),
         reportIntervalMin: Math.max(1, Math.trunc(numOr(env.REPORT_INTERVAL_MIN, 60))),
         maxHoldHours: Math.max(0, Math.trunc(numOr(env.MAX_HOLD_HOURS, 0))),
-        symbols: watchlist.length > 0 ? watchlist : ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ZECUSDT'],
+        symbols: watchlist.length > 0 ? watchlist : ['BTCIDR', 'ETHIDR', 'SOLIDR'],
         connectedConsensus: boolOr(env.CONNECTED_CONSENSUS, false)
       },
       agents: {
@@ -359,10 +345,10 @@ export class SettingsService {
         tradingviewPrefix: (
           env.TRADINGVIEW_EXCHANGE_PREFIX ??
           env.TRADINGVIEW_PREFIX ??
-          'BYBIT'
+          'INDODAX'
         )
           .trim()
-          .replace(/:+$/, '') || 'BYBIT',
+          .replace(/:+$/, '') || 'INDODAX',
         debateMode: (env.DEBATE_MODE ?? '').trim().toLowerCase() === 'fast' ? 'fast' : 'normal',
         fightThreshold: Math.min(1, Math.max(0.05, numOr(env.FIGHT_THRESHOLD, 0.35)))
       },
@@ -370,9 +356,6 @@ export class SettingsService {
         commandsEnabled: boolOr(env.CHANNEL_COMMANDS, false),
         supervisorIntervalMin: Math.max(1, Math.trunc(numOr(env.SUPERVISOR_INTERVAL_MIN, 10))),
         telegramEnabled: Boolean((env.TELEGRAM_BOT_TOKEN ?? '').trim() && (env.TELEGRAM_CHAT_ID ?? '').trim()),
-        discordEnabled: Boolean((env.DISCORD_WEBHOOK_URL ?? '').trim() || (env.DISCORD_BOT_TOKEN ?? '').trim()),
-        slackEnabled: Boolean((env.SLACK_WEBHOOK_URL ?? '').trim() || (env.SLACK_BOT_TOKEN ?? '').trim()),
-        whatsappEnabled: Boolean((env.WHATSAPP_ACCESS_TOKEN ?? '').trim()),
         ownerAllowlist: (env.CHANNEL_OWNER_IDS ?? '')
           .split(',')
           .map((s) => s.trim())
@@ -395,12 +378,33 @@ export class SettingsService {
 
     if (existing.rows.length > 0) {
       const row = existing.rows[0]!;
-      const effective = OwnerSettingsSchema.parse(JSON.parse(String(row.payload_json)));
+      const raw = JSON.parse(String(row.payload_json)) as Record<string, any>;
+      if (raw.mode === 'TESTNET') raw.mode = 'PAPER';
+      if (raw.appMode && raw.appMode !== 'local') raw.appMode = 'local';
+      if (raw.networkProfiles && typeof raw.networkProfiles === 'object') {
+        delete raw.networkProfiles.testnet;
+      }
+      if (raw.venue && typeof raw.venue === 'object') {
+        delete raw.venue.allowExperimentalLive;
+        delete raw.venue.asterEntryOrderType;
+        if (raw.venue.exchange && raw.venue.exchange !== 'indodax') raw.venue.exchange = 'indodax';
+        if (raw.venue.network && raw.venue.network !== 'mainnet') raw.venue.network = null;
+      }
+      if (raw.channels && typeof raw.channels === 'object') {
+        delete raw.channels.discordEnabled;
+        delete raw.channels.slackEnabled;
+        delete raw.channels.whatsappEnabled;
+      }
+      if (raw.agents && typeof raw.agents === 'object') {
+        for (const role of ROLE_IDS) {
+          if (raw.agents[role] && typeof raw.agents[role] === 'object') {
+            raw.agents[role].route = 'LOCAL';
+          }
+        }
+      }
+      const effective = OwnerSettingsSchema.parse(raw);
       if (effective.trading && (effective.trading.orderSizePct === 1.5 || effective.trading.orderSizePct == null)) {
         delete (effective.trading as any).orderSizePct;
-      }
-      if (effective.networkProfiles?.testnet && (effective.networkProfiles.testnet.orderSizePct === 1.5 || effective.networkProfiles.testnet.orderSizePct == null)) {
-        delete (effective.networkProfiles.testnet as any).orderSizePct;
       }
       if (effective.networkProfiles?.mainnet && (effective.networkProfiles.mainnet.orderSizePct === 1.5 || effective.networkProfiles.mainnet.orderSizePct == null)) {
         delete (effective.networkProfiles.mainnet as any).orderSizePct;

@@ -58,13 +58,14 @@ export interface CycleResult {
   reason: CycleReason;
   status: 'completed' | 'incomplete' | 'cancelled';
   verdict: {
-    action: 'OPEN_LONG' | 'OPEN_SHORT' | 'HOLD' | 'CLOSE';
+    action: 'OPEN_LONG' | 'HOLD' | 'CLOSE';
     symbol: string;
     thesis: TradeThesis | null;
     exit: VerifiedExit | null;
     rejectionReason: string | null;
   } | null;
   roleResults: RoleResult[];
+  providerCalls?: number;
   jevReview: JevReview | null;
   jevReviewId: string | null;
   configVersion: number;
@@ -78,12 +79,32 @@ const ANALYST_ROLES: readonly Exclude<RoleId, 'risk' | 'execution' | 'lead'>[] =
 ];
 
 interface CandidateOrder {
-  side: 'LONG' | 'SHORT' | null;
-  orderType: 'MARKET' | 'LIMIT_GTC' | null;
-  limitPrice: string | null;
+  side: 'LONG' | null;
+  orderType: 'MARKET' | null;
   stop: string | null;
   tp: string | null;
-  leverage: number | null;
+}
+
+/**
+ * The model sees the Indodax spot view of the policy and ticket only. Leverage, a second side,
+ * resting limit orders and slot counts are internal and never named in a prompt.
+ */
+export function promptPolicy(policy: CyclePolicy): Record<string, unknown> {
+  return {
+    minEntryConfidencePct: policy.minEntryConfidencePct,
+    requireTwoOfThreeAnalysts: policy.requireTwoOfThreeAnalysts,
+    defaultStopPct: policy.defaultStopPct,
+    takeProfitPct: policy.takeProfitPct,
+    takeProfitR: policy.takeProfitR,
+    dailyLossLimitPct: policy.dailyLossLimitPct,
+    hasPosition: policy.hasPosition ?? false,
+    baselineStopPrice: policy.profileBaselineStopPrice?.long ?? null,
+    baselineTpPrice: policy.profileBaselineTpPrice?.long ?? null
+  };
+}
+
+export function promptTicket(ticket: CandidateOrder): Record<string, unknown> {
+  return { side: ticket.side === 'LONG' ? 'LONG' : null, orderType: ticket.side ? 'MARKET' : null, stop: ticket.stop, tp: ticket.tp };
 }
 
 export function toPeerDigest(r: RoleResult): Record<string, unknown> {
@@ -98,8 +119,8 @@ export function toPeerDigest(r: RoleResult): Record<string, unknown> {
     claimRefs: r.claimRefs ?? [],
     contraryRefs: r.contraryRefs ?? []
   };
-  if (r.proposedOrderType) digest.proposedOrderType = r.proposedOrderType;
-  if (r.proposedLimitPrice !== undefined && r.proposedLimitPrice !== null) digest.proposedLimitPrice = r.proposedLimitPrice;
+  // Resting limit orders do not exist on Indodax spot, so a model's limit proposal is never shown to its peers.
+  if (r.proposedOrderType === 'MARKET') digest.proposedOrderType = r.proposedOrderType;
   if (r.proposedStop) digest.proposedStop = r.proposedStop;
   if (r.proposedTp != null) digest.proposedTp = r.proposedTp;
   return digest;
@@ -145,88 +166,34 @@ function samePrice(a: string | number | null | undefined, b: string | number | n
 }
 
 function resolveBaselinePrice(
-  baseline: { long: string | null; short: string | null } | string | null | undefined,
-  side: 'LONG' | 'SHORT' | null | undefined
+  baseline: { long: string | null; short?: string | null } | string | null | undefined,
+  side: 'LONG' | null | undefined
 ): string | null {
   if (!baseline) return null;
   if (typeof baseline === 'string') return baseline;
   if (side === 'LONG') return baseline.long;
-  if (side === 'SHORT') return baseline.short;
   return null;
 }
 
-function ticketSide(stance: string | null | undefined): 'LONG' | 'SHORT' | null {
-  return stance === 'LONG' || stance === 'SHORT' ? stance : null;
+function ticketSide(stance: string | null | undefined): 'LONG' | null {
+  return stance === 'LONG' ? 'LONG' : null;
 }
 
 function leadChangedTicket(lead: RoleResult, ticket: CandidateOrder): boolean {
   const side = ticketSide(lead.stance);
   if (side && side !== ticket.side) return true;
-  if (lead.proposedOrderType && lead.proposedOrderType !== ticket.orderType) return true;
-  if (lead.proposedLimitPrice !== undefined && !samePrice(lead.proposedLimitPrice, ticket.limitPrice)) return true;
   if (lead.proposedStop && !samePrice(lead.proposedStop, ticket.stop)) return true;
   if (lead.proposedTp != null && !samePrice(lead.proposedTp, ticket.tp)) return true;
   return false;
 }
 
-function computeBaselinePricesForReference(
-  refPrice: number,
-  side: 'LONG' | 'SHORT',
-  policy: CyclePolicy
-): { stop: string; tp: string } {
-  const stopPct = policy.defaultStopPct ?? 30;
-  const stopPricePct = stopPct / 100;
-  const tpPct = policy.takeProfitPct ?? (stopPct * (policy.takeProfitR ?? 2));
-  const tpPricePct = tpPct / 100;
-
-  const stop = side === 'LONG'
-    ? (refPrice * (1 - stopPricePct)).toFixed(4)
-    : (refPrice * (1 + stopPricePct)).toFixed(4);
-  const tp = side === 'LONG'
-    ? (refPrice * (1 + tpPricePct)).toFixed(4)
-    : (refPrice * (1 - tpPricePct)).toFixed(4);
-
-  return { stop, tp };
-}
-
-function reviseTicket(lead: RoleResult, ticket: CandidateOrder, policy?: CyclePolicy): CandidateOrder {
-  let orderType = lead.proposedOrderType ?? ticket.orderType;
-  if (orderType === 'LIMIT_GTC' && policy?.supportsLimitGtc === false) {
-    orderType = 'MARKET';
-  }
-  const limitPrice = orderType === 'MARKET'
-    ? null
-    : lead.proposedLimitPrice === undefined
-      ? ticket.limitPrice
-      : lead.proposedLimitPrice;
-
+function reviseTicket(lead: RoleResult, ticket: CandidateOrder): CandidateOrder {
   const side = ticketSide(lead.stance) ?? ticket.side;
-  let stop = lead.proposedStop ?? ticket.stop;
-  let tp = lead.proposedTp ?? ticket.tp;
-
-  if (orderType === 'LIMIT_GTC' && limitPrice && Number(limitPrice) > 0 && side && policy) {
-    const isLimitChanged = lead.proposedLimitPrice !== undefined && !samePrice(lead.proposedLimitPrice, ticket.limitPrice);
-    const isOrderTypeChangedToLimit = ticket.orderType !== 'LIMIT_GTC';
-    const numLimit = Number(limitPrice);
-    const numStop = Number(stop);
-    const isStopGeometryInvalid = !stop || isNaN(numStop) || (side === 'LONG' ? numStop >= numLimit : numStop <= numLimit);
-    const numTp = Number(tp);
-    const isTpGeometryInvalid = tp ? (isNaN(numTp) || (side === 'LONG' ? numTp <= numLimit : numTp >= numLimit)) : false;
-
-    if (!lead.proposedStop || isLimitChanged || isOrderTypeChangedToLimit || isStopGeometryInvalid) {
-      const baselines = computeBaselinePricesForReference(numLimit, side, policy);
-      stop = (!isStopGeometryInvalid && lead.proposedStop) ? lead.proposedStop : baselines.stop;
-      tp = (!isTpGeometryInvalid && lead.proposedTp) ? lead.proposedTp : baselines.tp;
-    }
-  }
-
   return {
-    ...ticket,
     side,
-    orderType,
-    limitPrice,
-    stop,
-    tp
+    orderType: 'MARKET',
+    stop: lead.proposedStop ?? ticket.stop,
+    tp: lead.proposedTp ?? ticket.tp
   };
 }
 
@@ -245,6 +212,12 @@ export class CycleRunner {
   }
 
   async run(input: RunCycleInput): Promise<CycleResult> {
+    const out = await this.runInternal(input);
+    const providerCalls = out.roleResults.reduce((sum, r) => sum + (r.providerCalls ?? 1), 0);
+    return { ...out, providerCalls };
+  }
+
+  private async runInternal(input: RunCycleInput): Promise<CycleResult> {
     const cycleId = input.cycleId ?? `cycle-${randomUUID()}`;
     const deadlineAt = Date.now() + (input.deadlineMs ?? 360_000);
     const routeOf = (role: RoleId): RoleRoute => input.routeForRole?.(role) ?? 'LOCAL';
@@ -288,7 +261,7 @@ export class CycleRunner {
           symbol: input.symbol,
           promptContext: {
             marketSummary: input.marketSummary,
-            policy: input.policy
+            policy: promptPolicy(input.policy)
           }
         })
       )
@@ -325,7 +298,7 @@ export class CycleRunner {
             marketSummary: input.marketSummary,
             peerObservations: observeResults.map(toPeerDigest),
             jevReview,
-            policy: input.policy
+            policy: promptPolicy(input.policy)
           }
         })
       )
@@ -349,20 +322,17 @@ export class CycleRunner {
         observations: observeResults.map(toPeerDigest),
         challenges: challengeResults.map(toPeerDigest),
         jevReview,
-        policy: input.policy
+        policy: promptPolicy(input.policy)
       }
     });
     const executionSide = ticketSide(executionResult.stance);
     let resolvedCandidateSide = executionSide;
     if (!resolvedCandidateSide) {
       let longVotes = 0;
-      let shortVotes = 0;
       for (const r of [...challengeResults, ...observeResults]) {
         if (r.stance === 'LONG') longVotes++;
-        if (r.stance === 'SHORT') shortVotes++;
       }
-      if (longVotes > shortVotes && longVotes >= 2) resolvedCandidateSide = 'LONG';
-      else if (shortVotes > longVotes && shortVotes >= 2) resolvedCandidateSide = 'SHORT';
+      if (longVotes >= 2) resolvedCandidateSide = 'LONG';
     }
 
     const baselineStop = resolveBaselinePrice(input.policy.profileBaselineStopPrice, resolvedCandidateSide);
@@ -376,44 +346,14 @@ export class CycleRunner {
       observeResults.find((r) => r.proposedTp)?.proposedTp ??
       baselineTp;
 
-    const fallbackOrderType =
-      challengeResults.find((r) => r.proposedOrderType)?.proposedOrderType ??
-      observeResults.find((r) => r.proposedOrderType)?.proposedOrderType;
-    const fallbackLimitPrice =
-      challengeResults.find((r) => r.proposedLimitPrice)?.proposedLimitPrice ??
-      observeResults.find((r) => r.proposedLimitPrice)?.proposedLimitPrice;
-
-    const initialOrderType = (executionResult.proposedOrderType === 'LIMIT_GTC' && input.policy.supportsLimitGtc === false)
-      ? 'MARKET'
-      : (executionResult.proposedOrderType ?? fallbackOrderType ?? 'MARKET');
-    const initialLimitPrice = initialOrderType === 'MARKET' ? null : (executionResult.proposedLimitPrice ?? fallbackLimitPrice ?? null);
-
-    let initialStop = executionResult.proposedStop ?? fallbackStop;
-    let initialTp = executionResult.proposedTp ?? fallbackTp;
-
-    if (initialOrderType === 'LIMIT_GTC' && initialLimitPrice && Number(initialLimitPrice) > 0 && resolvedCandidateSide) {
-      const numLimit = Number(initialLimitPrice);
-      const baselines = computeBaselinePricesForReference(numLimit, resolvedCandidateSide, input.policy);
-      const numStop = Number(initialStop);
-      const isStopGeometryInvalid = !initialStop || isNaN(numStop) || (resolvedCandidateSide === 'LONG' ? numStop >= numLimit : numStop <= numLimit);
-      const numTp = Number(initialTp);
-      const isTpGeometryInvalid = initialTp ? (isNaN(numTp) || (resolvedCandidateSide === 'LONG' ? numTp <= numLimit : numTp >= numLimit)) : false;
-
-      if (!initialStop || initialStop === baselineStop || isStopGeometryInvalid) {
-        initialStop = baselines.stop;
-      }
-      if (!initialTp || initialTp === baselineTp || isTpGeometryInvalid) {
-        initialTp = baselines.tp;
-      }
-    }
+    const initialStop = executionResult.proposedStop ?? fallbackStop;
+    const initialTp = executionResult.proposedTp ?? fallbackTp;
 
     const candidateOrder: CandidateOrder = {
       side: resolvedCandidateSide,
-      orderType: initialOrderType,
-      limitPrice: initialLimitPrice,
+      orderType: 'MARKET',
       stop: initialStop,
-      tp: initialTp,
-      leverage: input.policy.maxLeverage ?? null
+      tp: initialTp
     };
     const riskResult = await runRole({
       cycleId,
@@ -431,8 +371,8 @@ export class CycleRunner {
         observations: observeResults.map(toPeerDigest),
         challenges: challengeResults.map(toPeerDigest),
         jevReview,
-        policy: input.policy,
-        candidateOrder
+        policy: promptPolicy(input.policy),
+        candidateOrder: promptTicket(candidateOrder)
       }
     });
     roleResults.push(riskResult, executionResult);
@@ -456,8 +396,8 @@ export class CycleRunner {
         riskResult: toPeerDigest(riskResult),
         executionResult: toPeerDigest(executionResult),
         jevReview,
-        policy: input.policy,
-        candidateOrder
+        policy: promptPolicy(input.policy),
+        candidateOrder: promptTicket(candidateOrder)
       }
     });
     roleResults.push(leadResult);
@@ -511,7 +451,7 @@ export class CycleRunner {
     const typedRisk = riskResult as RiskRoleResult;
     const desiredStance = leadResult.stance;
 
-    if (input.policy.hasPosition && (desiredStance === 'LONG' || desiredStance === 'SHORT')) {
+    if (input.policy.hasPosition && desiredStance === 'LONG') {
       return {
         cycleId,
         reason: input.reason,
@@ -531,7 +471,7 @@ export class CycleRunner {
       };
     }
 
-    if (desiredStance !== 'LONG' && desiredStance !== 'SHORT') {
+    if (desiredStance !== 'LONG') {
       const holdThesis: TradeThesis | null = (desiredStance === 'HOLD' && (leadResult.proposedStop || leadResult.proposedTp))
         ? {
             id: `thesis-${randomUUID()}`,
@@ -545,8 +485,8 @@ export class CycleRunner {
             invalidation: [],
             stop: leadResult.proposedStop ?? '',
             tp: leadResult.proposedTp ?? '',
-            orderType: leadResult.proposedOrderType ?? 'MARKET',
-            limitPrice: leadResult.proposedLimitPrice ?? null
+            orderType: 'MARKET',
+            limitPrice: null
           }
         : null;
 
@@ -621,7 +561,7 @@ export class CycleRunner {
     let ticket = candidateOrder;
     let authorizingRisk = typedRisk;
     if (leadChangedTicket(leadResult, ticket)) {
-      ticket = reviseTicket(leadResult, ticket, input.policy);
+      ticket = reviseTicket(leadResult, ticket);
       const again = await runRole({
         cycleId,
         role: 'risk',
@@ -638,8 +578,8 @@ export class CycleRunner {
           observations: observeResults.map(toPeerDigest),
           challenges: challengeResults.map(toPeerDigest),
           jevReview,
-          policy: input.policy,
-          candidateOrder: ticket
+          policy: promptPolicy(input.policy),
+          candidateOrder: promptTicket(ticket)
         }
       });
       roleResults.push(again);
@@ -679,34 +619,11 @@ export class CycleRunner {
     }
 
     const thesisSide = ticket.side;
-    let proposedStop = ticket.stop;
-    let proposedTp = ticket.tp;
-
-    if (ticket.orderType === 'LIMIT_GTC' && ticket.limitPrice && Number(ticket.limitPrice) > 0 && (thesisSide === 'LONG' || thesisSide === 'SHORT')) {
-      const numLimit = Number(ticket.limitPrice);
-      const baselines = computeBaselinePricesForReference(numLimit, thesisSide, input.policy);
-      const marketBaselineStop = resolveBaselinePrice(input.policy.profileBaselineStopPrice, thesisSide);
-      const numProposedStop = Number(proposedStop);
-      const isStopGeometryInvalid = !proposedStop || isNaN(numProposedStop) || (thesisSide === 'LONG' ? numProposedStop >= numLimit : numProposedStop <= numLimit);
-
-      if (!proposedStop || proposedStop === marketBaselineStop || isStopGeometryInvalid) {
-        proposedStop = baselines.stop;
-      }
-
-      const marketBaselineTp = resolveBaselinePrice(input.policy.profileBaselineTpPrice, thesisSide);
-      const numProposedTp = Number(proposedTp);
-      const isTpGeometryInvalid = proposedTp ? (isNaN(numProposedTp) || (thesisSide === 'LONG' ? numProposedTp <= numLimit : numProposedTp >= numLimit)) : false;
-
-      if (!proposedTp || proposedTp === marketBaselineTp || isTpGeometryInvalid) {
-        proposedTp = baselines.tp;
-      }
-    } else {
-      const baselineThesisStop = resolveBaselinePrice(input.policy.profileBaselineStopPrice, thesisSide);
-      const baselineThesisTp = resolveBaselinePrice(input.policy.profileBaselineTpPrice, thesisSide);
-      proposedStop = proposedStop ?? baselineThesisStop;
-      proposedTp = proposedTp ?? baselineThesisTp;
-    }
-    if (thesisSide !== 'LONG' && thesisSide !== 'SHORT') {
+    const baselineThesisStop = resolveBaselinePrice(input.policy.profileBaselineStopPrice, thesisSide);
+    const baselineThesisTp = resolveBaselinePrice(input.policy.profileBaselineTpPrice, thesisSide);
+    const proposedStop = ticket.stop ?? baselineThesisStop;
+    const proposedTp = ticket.tp ?? baselineThesisTp;
+    if (thesisSide !== 'LONG') {
       return {
         cycleId,
         reason: input.reason,
@@ -716,7 +633,7 @@ export class CycleRunner {
           symbol: input.symbol,
           thesis: null,
           exit: null,
-          rejectionReason: 'Entry ticket has no side'
+          rejectionReason: 'Entry ticket has no LONG side'
         },
         roleResults,
         jevReview,
@@ -746,7 +663,7 @@ export class CycleRunner {
     }
 
     const predicate = leadResult.invalidationPredicate ?? {
-      kind: thesisSide === 'LONG' ? ('PRICE_BELOW' as const) : ('PRICE_ABOVE' as const),
+      kind: 'PRICE_BELOW' as const,
       level: proposedStop,
       description: `Stop invalidation at ${proposedStop}`
     };
@@ -756,15 +673,15 @@ export class CycleRunner {
       cycleId,
       accountRef: input.accountRef,
       symbol: input.symbol,
-      side: thesisSide,
+      side: 'LONG',
       evidenceId: input.evidenceId,
       configVersion: input.configVersion,
       claims: [...new Set([...leadResult.claimRefs, ...(jevReview?.claimRefs ?? [])])],
       invalidation: [predicate],
       stop: proposedStop,
       tp: proposedTp,
-      orderType: ticket.orderType ?? 'MARKET',
-      limitPrice: ticket.limitPrice
+      orderType: 'MARKET',
+      limitPrice: null
     };
 
     return {
@@ -772,7 +689,7 @@ export class CycleRunner {
       reason: input.reason,
       status: 'completed',
       verdict: {
-        action: thesisSide === 'LONG' ? 'OPEN_LONG' : 'OPEN_SHORT',
+        action: 'OPEN_LONG',
         symbol: input.symbol,
         thesis,
         exit: null,

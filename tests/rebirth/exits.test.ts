@@ -61,7 +61,7 @@ describe('T08 nine independent verified exit triggers, zero duration-only exit a
           positionRef: 'pos-held-7-days',
           accountRef: 'paper:default',
           symbol: 'ETHUSDT',
-          side: 'SHORT',
+          side: 'LONG',
           openedAt: 1_760_500_000_000 - 7 * 24 * 60 * 60 * 1000,
           verifiedTriggers: []
         }
@@ -74,13 +74,13 @@ describe('T08 nine independent verified exit triggers, zero duration-only exit a
       requestId: 'owner-close-1',
       observedAt: 1_760_500_005_000,
       position: {
-        positionRef: 'pos-eth-short',
+        positionRef: 'pos-eth-long',
         accountRef: 'paper:default',
         symbol: 'ETHUSDT',
-        side: 'SHORT'
+        side: 'LONG'
       }
     });
     expect(ownerClose.authorized).toBe(true);
-    expect(ownerClose.positionRef).toBe('pos-eth-short');
+    expect(ownerClose.positionRef).toBe('pos-eth-long');
   });
 });

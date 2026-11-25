@@ -1,5 +1,5 @@
 // Strips anything that looks like a credential before text reaches a log, a report,
-// the browser, or the Grok Bot bridge.
+// the browser, or diagnostic outputs.
 const PATTERNS: RegExp[] = [
   /\bxai-[A-Za-z0-9_-]{10,}/g,
   /\bsk-ant-[A-Za-z0-9_-]{10,}/g,

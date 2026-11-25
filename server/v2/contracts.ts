@@ -23,17 +23,17 @@ export type {
 export const ROLE_IDS = ['lead', 'market', 'research', 'strategist', 'risk', 'execution'] as const;
 export type RoleId = (typeof ROLE_IDS)[number];
 
-export const TRADING_MODES = ['PAPER', 'TESTNET', 'LIVE'] as const;
+export const TRADING_MODES = ['PAPER', 'LIVE'] as const;
 export type TradingMode = (typeof TRADING_MODES)[number];
 
-export const APP_MODES = ['local', 'grokbot'] as const;
+export const APP_MODES = ['local'] as const;
 export type AppMode = (typeof APP_MODES)[number];
 
-export const EXCHANGES = ['bybit', 'binance', 'okx', 'hyperliquid', 'aster', 'dydx', 'paradex', 'orderly'] as const;
+export const EXCHANGES = ['indodax'] as const;
 export type Venue = (typeof EXCHANGES)[number];
 export type VenueId = Venue;
 
-export const NETWORKS = ['testnet', 'mainnet'] as const;
+export const NETWORKS = ['mainnet'] as const;
 export type Network = (typeof NETWORKS)[number];
 
 export const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'] as const;
@@ -153,8 +153,8 @@ export interface MarketFrame {
   evidenceId: string;
   revision: number;
   symbol: string;
-  venue: 'bybit';
-  category: 'linear';
+  venue: 'indodax';
+  category: 'spot';
   asOf: number;
   last: Evidence<DecimalString>;
   bid: Evidence<DecimalString>;
@@ -243,6 +243,8 @@ export interface OfficeRuntime {
   snapshot(): OfficeState;
   dispatch(input: OfficeCommand): Promise<OfficeReply>;
   triggerCycle?(symbol?: string, reason?: string): Promise<{ ok: boolean; message: string; cycleId?: string }>;
+  /** Shared public client so the routes, the PAPER session and debates use one cache and one request budget. */
+  indodaxClient?: import('../market/indodax.js').IndodaxPublicClient;
   runIndodaxPaperCycle?(input: {
     symbol: string;
     accountRef: string;
@@ -252,11 +254,12 @@ export interface OfficeRuntime {
   }): Promise<{
     status: 'completed' | 'incomplete' | 'cancelled';
     verdict: {
-      action: 'OPEN_LONG' | 'OPEN_SHORT' | 'HOLD' | 'CLOSE';
+      action: 'OPEN_LONG' | 'HOLD' | 'CLOSE';
       thesis: { stop: string; tp: string | null; orderType: string } | null;
       rejectionReason: string | null;
     } | null;
     failures?: string;
+    providerCalls?: number;
   }>;
   updateAutoSettings?(patch: Record<string, unknown>): OfficeState;
   updateState?(mutator: (draft: OfficeState) => OfficeState | void): OfficeState;

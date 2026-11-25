@@ -12,7 +12,7 @@ export interface PositionExitCandidate {
   positionRef: string;
   accountRef: string;
   symbol: string;
-  side: 'LONG' | 'SHORT';
+  side: 'LONG';
   openedAt: number;
   verifiedTriggers: Array<{
     trigger: ExitTrigger;
@@ -82,7 +82,7 @@ export interface OwnerCloseAuthorizationInput {
     positionRef: string;
     accountRef: string;
     symbol: string;
-    side: 'LONG' | 'SHORT';
+    side: 'LONG';
   };
 }
 

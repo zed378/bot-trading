@@ -7,7 +7,7 @@ import { useI18n } from '../i18n';
 export function CommandBar({ state, command }: { state: DeskState; command: (t: string) => Promise<{ ok: boolean; reply: string }> }) {
   const { t } = useI18n();
   const [text, setText] = useState('');
-  const [symbol, setSymbol] = useState(state.watchlist[0] ?? 'BTCUSDT');
+  const [symbol, setSymbol] = useState(state.watchlist[0] ?? 'BTCIDR');
   const [reply, setReply] = useState<{ ok: boolean; reply: string } | null>(null);
   const [killBusy, setKillBusy] = useState(false);
   const [restarting, setRestarting] = useState(false);

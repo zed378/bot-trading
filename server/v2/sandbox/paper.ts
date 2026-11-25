@@ -1,4 +1,3 @@
-import { safe } from '../../redact.js';
 import {
   type DecimalString,
   type Network,
@@ -20,14 +19,7 @@ import {
   type VenueAdapter,
   type VenueQuote
 } from '../execution/adapters/types.js';
-import {
-  addDecimals,
-  compareDecimals,
-  divDecimals,
-  mulDecimals,
-  quantize,
-  subDecimals
-} from '../execution/decimal.js';
+import { addDecimals, divDecimals, mulDecimals, quantize, subDecimals } from '../execution/decimal.js';
 
 export interface PaperVenueOptions {
   venue?: Venue;
@@ -61,7 +53,7 @@ export class PaperVenue implements VenueAdapter {
     if (options.liveCredential) {
       throw new AdapterCapabilityError('PaperVenue refuses live keys and signing credentials.');
     }
-    this.venue = options.venue ?? 'bybit';
+    this.venue = options.venue ?? 'indodax';
     this.network = options.network ?? 'mainnet';
     this.equity = options.initialBalance ?? '1000';
     this.availableBalance = this.equity;

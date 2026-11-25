@@ -1,25 +1,15 @@
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import express from 'express';
-import { z } from 'zod';
 import type { SessionLogger } from '../session-log.js';
-import { safe } from '../redact.js';
-import { sanitizeUntrusted } from '../untrusted.js';
 import type { OfficeRuntime } from './contracts.js';
-import { isLocalLoopbackClient } from './contracts.js';
-import { checkUpdate, applyUpdate } from '../updater.js';
 import { mountStateRoutes } from './api/state.js';
 import { mountOperationsRoutes } from './api/operations.js';
 import { ChatService, mountChatRoutes } from './api/chat.js';
 import { HistoryService, mountHistoryRoutes } from './api/history.js';
 import { ReportsService, mountReportRoutes } from './reports.js';
 import { mountSetupApiRoutes, type SetupApiDeps } from './api/setup.js';
-import { mountGrokRoutes } from './api/grok.js';
-import type { GrokBridge } from './connectors/grok/bridge.js';
-import type { KeyRegistry } from './connectors/grok/auth.js';
-import { mountResearchRoutesV2, type ResearchRouteDeps } from './api/research.js';
-import { mountWalletRoutes, type WalletRouteDeps } from './api/wallet.js';
 import { mountLocalAgentsRoutes } from './api/local-agents.js';
 import { mountIndodaxRoutes } from './api/indodax.js';
 import { mountIndodaxPaper } from './api/indodax-paper.js';
@@ -36,42 +26,11 @@ export interface ReplacementAppOptions {
   chatService?: ChatService;
   historyService?: HistoryService;
   setupDeps?: SetupApiDeps;
-  walletDeps?: WalletRouteDeps;
-  grokBridge?: GrokBridge;
-  grokKeyRegistry?: KeyRegistry;
-  researchDeps?: ResearchRouteDeps;
   mountAdditionalRoutes?: (app: express.Express, runtime: OfficeRuntime) => void;
 }
 
-const sameSecret = (given: string, want: string): boolean => {
-  const a = Buffer.from(given);
-  const b = Buffer.from(want);
-  return a.length === b.length && timingSafeEqual(a, b);
-};
 
-function createEventDeduplicator(ttlMs = 10 * 60_000) {
-  const seen = new Map<string, number>();
-  return {
-    isDuplicate: (key: string): boolean => {
-      const now = Date.now();
-      for (const [k, ts] of seen) {
-        if (now - ts > ttlMs) seen.delete(k);
-      }
-      if (seen.has(key)) return true;
-      seen.set(key, now);
-      return false;
-    }
-  };
-}
 
-const TradingViewSchema = z.object({
-  passphrase: z.string().max(200),
-  symbol: z.string().min(2).max(40),
-  action: z.string().max(20),
-  price: z.union([z.number(), z.string()]).optional(),
-  note: z.string().max(500).optional(),
-  eventId: z.string().max(100).optional()
-});
 
 export function createReplacementApp(
   runtime: OfficeRuntime,
@@ -97,105 +56,14 @@ export function createReplacementApp(
   });
 
   mountOperationsRoutes(app, runtime);
-  mountIndodaxRoutes(app);
-  app.locals.indodaxPaperAgent = mountIndodaxPaper(app, runtime);
+  mountIndodaxRoutes(app, runtime.indodaxClient);
+  app.locals.indodaxPaperAgent = mountIndodaxPaper(app, runtime, runtime.indodaxClient);
   app.locals.indodaxStopWorker = mountIndodaxStopRoutes(app, { isKilled: () => runtime.snapshot().killed });
   if (options.providerProfileDeps) mountProviderProfileRoutes(app, options.providerProfileDeps);
-
-  app.post('/api/channels/discord', async (req: express.Request & { rawBody?: Buffer }, res) => {
-    const pubKey = (process.env.DISCORD_PUBLIC_KEY ?? '').trim();
-    if (!pubKey) {
-      res.status(404).json({ error: 'Discord commands are off (set DISCORD_PUBLIC_KEY)' });
-      return;
-    }
-    const ts = req.get('X-Signature-Timestamp');
-    const sig = req.get('X-Signature-Ed25519');
-    const rawBody = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
-
-    const { verifyDiscord } = await import('./channels.js');
-    if (!verifyDiscord(pubKey, rawBody, ts, sig)) {
-      res.status(401).json({ error: 'invalid request signature' });
-      return;
-    }
-
-    const b = req.body as { type?: number; member?: { user?: { id?: string } }; user?: { id?: string }; data?: any };
-    if (b.type === 1) {
-      res.json({ type: 1 });
-      return;
-    }
-
-    if (b.type === 2) {
-      const userId = b.member?.user?.id ?? b.user?.id;
-      const allowed = (process.env.DISCORD_ALLOWED_USER_IDS ?? '').split(/[\s,]+/).filter(Boolean);
-      if (!userId || !allowed.includes(userId)) {
-        res.json({
-          type: 4,
-          data: {
-            content: 'You are not on this desk\'s allowlist.',
-            flags: 64,
-            allowed_mentions: { parse: [] }
-          }
-        });
-        return;
-      }
-
-      const commandsEnabled = /^on$/i.test((process.env.CHANNEL_COMMANDS ?? '').trim());
-      if (!commandsEnabled) {
-        res.json({
-          type: 4,
-          data: {
-            content: 'Chat commands are off on this desk (CHANNEL_COMMANDS=off).',
-            flags: 64,
-            allowed_mentions: { parse: [] }
-          }
-        });
-        return;
-      }
-
-      const { discordCommandText } = await import('./channels.js');
-      const text = discordCommandText(b.data);
-      const cmdRes = runtime.handleCommand
-        ? await runtime.handleCommand({
-            text,
-            conversationId: 'discord'
-          })
-        : { ok: false, error: 'Command service unavailable.' };
-      const reply = cmdRes.reply ?? cmdRes.error ?? 'Command executed.';
-      res.json({
-        type: 4,
-        data: {
-          content: safe(reply).slice(0, 1990),
-          flags: 64,
-          allowed_mentions: { parse: [] }
-        }
-      });
-      return;
-    }
-
-    res.status(400).json({ error: 'Unsupported interaction type' });
-  });
 
   if (options.setupDeps) {
     mountSetupApiRoutes(app, { ...options.setupDeps, runtime });
     mountLocalAgentsRoutes(app, { ...options.setupDeps, runtime });
-  }
-
-  const walletDeps =
-    options.walletDeps ??
-    (options.setupDeps
-      ? { settings: options.setupDeps.settings, secrets: options.setupDeps.secrets }
-      : undefined);
-
-  if (walletDeps) {
-    mountWalletRoutes(app, walletDeps);
-  }
-
-  if (options.grokBridge && options.grokKeyRegistry) {
-    mountGrokRoutes(app, options.grokBridge, options.grokKeyRegistry, runtime);
-  }
-
-  if (options.researchDeps) {
-    mountResearchRoutesV2(app, options.researchDeps);
   }
 
   const reportsService = options.reportsService ?? new ReportsService();
@@ -208,122 +76,6 @@ export function createReplacementApp(
 
   const historyService = options.historyService ?? new HistoryService();
   mountHistoryRoutes(app, historyService, runtime);
-
-  const tvDedupe = createEventDeduplicator();
-  app.post('/api/tradingview', async (req, res) => {
-    const expectedPass =
-      options.setupDeps?.secrets.getSecret('TRADINGVIEW_PASSPHRASE') ??
-      process.env.TRADINGVIEW_PASSPHRASE;
-    const tvEnabled =
-      options.setupDeps?.settings.current().effective.preferences.tradingviewWebhook ??
-      Boolean(expectedPass);
-
-    if (!tvEnabled || !expectedPass) {
-      res.status(404).json({
-        ok: false,
-        error: 'TradingView webhook is off (set TRADINGVIEW_PASSPHRASE)'
-      });
-      return;
-    }
-
-    const parsed = TradingViewSchema.safeParse(req.body);
-    if (!parsed.success || !sameSecret(parsed.data.passphrase, expectedPass)) {
-      res.status(401).json({ ok: false, error: 'bad request or passphrase' });
-      return;
-    }
-
-    const rawSym = parsed.data.symbol
-      .replace(/^[A-Z0-9]+:/i, '')
-      .replace(/\.P$/i, '')
-      .trim()
-      .toUpperCase();
-    if (rawSym.length < 2) {
-      res.status(400).json({ ok: false, error: 'unknown symbol' });
-      return;
-    }
-
-    const price = Number(parsed.data.price);
-    const action = sanitizeUntrusted(parsed.data.action, 20).text.toLowerCase();
-    const note = sanitizeUntrusted(parsed.data.note ?? '', 300).text;
-
-    const dedupeKey = parsed.data.eventId
-      ? `id:${parsed.data.eventId}`
-      : `${rawSym}:${action}:${parsed.data.price ?? ''}:${note}`;
-
-    if (tvDedupe.isDuplicate(dedupeKey)) {
-      res.json({
-        ok: true,
-        duplicate: true,
-        symbol: rawSym,
-        action,
-        note: 'Duplicate alert acknowledged without re-triggering cycle.',
-        at: Date.now()
-      });
-      return;
-    }
-
-    runtime.updateState?.((draft: any) => {
-      draft.tradingview = draft.tradingview ?? {};
-      const alertData = {
-        symbol: rawSym,
-        action,
-        price: Number.isFinite(price) && price > 0 ? price : null,
-        note,
-        receivedAt: Date.now()
-      };
-      draft.tradingview.lastAlert = alertData;
-      draft.tradingview.recentAlerts = [alertData, ...(draft.tradingview.recentAlerts ?? [])].slice(0, 20);
-    });
-
-    void runtime.triggerCycle?.(rawSym, 'signal')?.catch(console.error);
-
-    res.json({
-      ok: true,
-      symbol: rawSym,
-      action,
-      price: Number.isFinite(price) && price > 0 ? price : null,
-      note,
-      at: Date.now()
-    });
-  });
-
-  app.get('/api/update/status', async (_req, res) => {
-    try {
-      res.json(await checkUpdate());
-    } catch (e) {
-      res.status(500).json({ ok: false, error: (e as Error).message });
-    }
-  });
-
-  app.post('/api/update/apply', (req, res) => {
-    const loopback = isLocalLoopbackClient({
-      remoteAddress: req.socket.remoteAddress,
-      hostHeader: req.headers.host,
-      origin: req.get('origin')
-    });
-    if (!loopback.ok) {
-      res.status(403).json({ ok: false, error: loopback.reason });
-      return;
-    }
-    const force = Boolean(req.body && typeof req.body === 'object' && (req.body as { force?: boolean }).force);
-    res.json(applyUpdate(process.cwd(), undefined, { force }));
-  });
-
-  app.get('/api/trakteer/config', (req, res) => {
-    const loopback = isLocalLoopbackClient({
-      remoteAddress: req.socket.remoteAddress,
-      hostHeader: req.headers.host,
-      origin: req.get('origin')
-    });
-    if (!loopback.ok) {
-      res.status(403).json({ ok: false, error: loopback.reason });
-      return;
-    }
-    const trakteerChannelId = options.setupDeps?.secrets.getSecret('TRAKTEER_CHANNEL_ID') ?? process.env.TRAKTEER_CHANNEL_ID ?? '';
-    res.json({ ok: true, channelId: trakteerChannelId });
-  });
-
-  options.mountAdditionalRoutes?.(app, runtime);
 
   app.use('/api', (_req, res) => {
     res.status(503).json({

@@ -1,4 +1,4 @@
-import { lazy, useCallback, useEffect, useState } from 'react';
+import { lazy, useEffect, useState } from 'react';
 import { useDesk } from './useDesk';
 import type { AgentId, CandleData, ChartTimeframe } from './types';
 import { Office } from './components/Office';
@@ -7,8 +7,7 @@ import { CommandBar } from './components/CommandBar';
 import { Reports } from './components/Reports';
 import { WorkspaceTools } from './components/WorkspaceTools';
 import { Tour } from './components/Tour';
-import { UpdateModal, type UpdateInfo } from './components/UpdateModal';
-import { TopBar, TickerStrip, FightMeter, Verdicts, Roster, TrakteerPopup, OpenOrders } from './components/Panels';
+import { TopBar, TickerStrip, FightMeter, Verdicts, Roster } from './components/Panels';
 import { I18nProvider, useI18n } from './i18n';
 import './styles/dashboard-v2.css';
 
@@ -33,46 +32,29 @@ function initialTourOpen() {
 
 function AppInner() {
   const { t, lang } = useI18n();
-  const { state, connected, speech, fights, meter, reactions, cendolBanner, dismissCendolBanner, triggerCendolTip, sceneEvents, command, activeConversationId, selectConversation, newConversation, deleteConversation } = useDesk();
+  const { state, connected, speech, fights, meter, reactions, cendolBanner, dismissCendolBanner, sceneEvents, command, activeConversationId, selectConversation, newConversation, deleteConversation } = useDesk();
   const [selected, setSelected] = useState<AgentId | null>(null);
   const [theme, setTheme] = useState<string>(initialTheme);
   const [symbol, setSymbol] = useState<string>('');
   const [candles, setCandles] = useState<CandleData | null>(null);
-  const [timeframe, setTimeframe] = useState<ChartTimeframe>('15m');
+  const [timeframe, setTimeframe] = useState<ChartTimeframe>('4h');
   const [chartError, setChartError] = useState('');
   const [chartRetry, setChartRetry] = useState(0);
-  const [setup, setSetup] = useState<boolean>(() => ['#setup', '#setup-trading-default', '#setup-trading-manual'].includes(window.location.hash));
-  const [setupEntry, setSetupEntry] = useState(window.location.hash);
-  const [venueKeys, setVenueKeys] = useState<boolean>(() => window.location.hash === '#venue-keys');
+  const [setup, setSetup] = useState<boolean>(() => window.location.hash === '#setup');
   const [tourOpen, setTourOpen] = useState<boolean>(initialTourOpen);
-  const [updateOpen, setUpdateOpen] = useState<boolean>(false);
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
-  const [trakteerOpen, setTrakteerOpen] = useState<boolean>(false);
-
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setTrakteerOpen(true);
-    }, 60 * 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    const h = () => {
-      setSetup(['#setup', '#setup-trading-default', '#setup-trading-manual'].includes(window.location.hash)); setSetupEntry(window.location.hash);
-      setVenueKeys(window.location.hash === '#venue-keys');
-    };
+    const h = () => setSetup(window.location.hash === '#setup');
     window.addEventListener('hashchange', h);
     return () => window.removeEventListener('hashchange', h);
   }, []);
 
   const closeSetup = () => { setSetup(false); if (window.location.hash.startsWith('#setup')) history.replaceState(null, '', window.location.pathname); };
-  const closeVenueKeys = () => { setVenueKeys(false); history.replaceState(null, '', window.location.pathname); document.getElementById('venue-keys-trigger')?.focus(); };
   const closeTour = () => {
     setTourOpen(false);
     try { localStorage.setItem('mpu_tour_done_v1', '1'); } catch { /* ignore */ }
   };
 
-  const anyModalOpen = Boolean(state) && (setup || updateOpen || tourOpen || trakteerOpen);
+  const anyModalOpen = Boolean(state) && (setup || tourOpen);
   useEffect(() => {
     document.documentElement.classList.toggle('modal-open', anyModalOpen);
     document.body.classList.toggle('modal-open', anyModalOpen);
@@ -81,19 +63,6 @@ function AppInner() {
       document.body.classList.remove('modal-open');
     };
   }, [anyModalOpen]);
-
-  const refreshUpdate = useCallback(async () => {
-    try {
-      const d = await fetch('/api/update/status').then((r) => r.json());
-      if (d?.ok) setUpdateInfo(d);
-    } catch { /* ignore */ }
-  }, []);
-
-  useEffect(() => {
-    void refreshUpdate();
-    const timer = window.setInterval(refreshUpdate, 5 * 60_000);
-    return () => window.clearInterval(timer);
-  }, [refreshUpdate]);
 
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem('mg-theme', theme); }, [theme]);
 
@@ -143,13 +112,7 @@ function AppInner() {
         theme={theme}
         onTheme={() => setTheme(theme === 'night' ? 'day' : 'night')}
         onSetup={() => { window.location.hash = 'setup'; }}
-        onVenueKeys={() => { window.location.hash = 'venue-keys'; }}
-        walletOpen={venueKeys}
-        onCloseWallet={closeVenueKeys}
         onTour={() => setTourOpen(true)}
-        updateInfo={updateInfo}
-        onOpenUpdate={() => setUpdateOpen(true)}
-        onOpenTrakteer={() => setTrakteerOpen(true)}
       />
       <TickerStrip state={state} />
       <main className="layout" id="office-workspace" tabIndex={-1}>
@@ -157,7 +120,6 @@ function AppInner() {
           <Office sceneEvents={sceneEvents} state={state} speech={speech} fights={fights} reactions={reactions} disagreement={dis} selected={selected} spark={spark} onSelect={setSelected} command={command} activeConversationId={activeConversationId} selectConversation={selectConversation} newConversation={newConversation} deleteConversation={deleteConversation} cendolBanner={cendolBanner} onDismissCendol={dismissCendolBanner}>
             <FightMeter state={state} meter={meter} fighting={fights.length > 0} />
             <Verdicts state={state} compact />
-            <OpenOrders state={state} command={command} />
           </Office>
           <section className="desk-team" id="desk-team" aria-label={id ? 'Tim agen' : 'Agent team'}><Roster state={state} onSelect={setSelected} /></section>
           <CommandBar state={state} command={(cmd) => command(cmd)} />
@@ -171,11 +133,9 @@ function AppInner() {
           <WorkspaceTools state={state} command={(cmd) => void command(cmd)} onActiveChange={(id) => { if (id) setSelected(null); }} />
         </aside>
       </main>
-      {setup && <DeferredPanel label="Setup"><SetupWizard state={state} onClose={closeSetup} tradingProfile={setupEntry === '#setup-trading-default' ? 'default' : setupEntry === '#setup-trading-manual' ? 'manual' : undefined} /></DeferredPanel>}
-      {updateOpen && <UpdateModal info={updateInfo} onRefresh={refreshUpdate} onClose={() => setUpdateOpen(false)} />}
-      {trakteerOpen && !tourOpen && !setup && !venueKeys && !updateOpen && <TrakteerPopup onClose={() => setTrakteerOpen(false)} onConfirmCendol={triggerCendolTip} />}
+      {setup && <DeferredPanel label="Setup"><SetupWizard state={state} onClose={closeSetup} /></DeferredPanel>}
       {selected && <DeferredPanel label="Agent"><AgentPanel state={state} id={selected} onClose={() => setSelected(null)} command={command} conversationId={activeConversationId} onNewConversation={newConversation} onDeleteConversation={deleteConversation} /></DeferredPanel>}
-      <Tour open={tourOpen && !setup && !venueKeys && !updateOpen} onClose={closeTour} />
+      <Tour open={tourOpen && !setup} onClose={closeTour} />
       <footer className="footer">{t('footerNote')} Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView Lightweight Charts</a>.</footer>
     </div>
   );

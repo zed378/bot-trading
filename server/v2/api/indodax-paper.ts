@@ -1,12 +1,12 @@
 import type express from 'express';
 import { z } from 'zod';
-import { randomUUID } from 'node:crypto';
 import { IndodaxPublicClient, indodaxSymbol } from '../../market/indodax.js';
-import { analyzeIndodax } from './indodax.js';
+import { buildIndodaxContext, indodaxPromptSummary } from '../../market/indodax-context.js';
+import { INDODAX_PAPER_CONSTRAINTS } from '../../../shared/indodax-context.js';
 import type { OfficeRuntime } from '../contracts.js';
 import { addDecimals, compareDecimals as cmp, divDecimals, mulDecimals, quantize, subDecimals } from '../execution/decimal.js';
 import { DecimalStringSchema } from '../contracts.js';
-import { character, episodeStats, minTargetPrice, roundTripNetPerUnit, routeSpot, toBars, ROUND_TRIP_MIN_EDGE } from '../../market/indodax-params.js';
+import { episodeStats, roundTripNetPerUnit, ROUND_TRIP_MIN_EDGE } from '../../market/indodax-params.js';
 
 const budgetSchema = z.string().regex(/^\d{1,12}(?:\.\d{1,8})?$/).refine(v => Number(v) > 0);
 const startSchema = z.object({ symbol: z.string().max(32), budget: budgetSchema, intervalMin: z.number().int().min(1).max(1440) }).strict();
@@ -128,39 +128,20 @@ export function mountIndodaxPaper(app: express.Express, runtime: OfficeRuntime, 
     const startingPositionEpoch = positionEpoch;
     state.busy = true;
     try {
-      const market = await analyzeIndodax(client, state.symbol, '4h');
-      if (!state.running || controller.signal.aborted || runtime.snapshot().killed || Date.now() - market.observedAt > 60_000) return;
-      state.lastPrice = market.last;
-      if (!enforceDailyLossCap(market.bid)) return;
-      if (checkStops(market.bid)) return;
+      const context = await buildIndodaxContext(client, state.symbol, '4h');
+      if (!state.running || controller.signal.aborted || runtime.snapshot().killed || Date.now() - context.observedAt > 60_000) return;
+      state.lastPrice = context.last;
+      if (!enforceDailyLossCap(context.bid)) return;
+      if (checkStops(context.bid)) return;
 
       const accountRef = 'indodax-paper-local';
-      const bars = toBars(market.candles);
-      const taker = market.pair.feeTakerPct ? Number(market.pair.feeTakerPct) / 100 : null;
-      const advisory = {
-        // KORO Math Atlas subset. Context only; it never changes order size or relaxes a guard.
-        character: character(bars),
-        spotRoute: routeSpot(bars),
-        takerFeePct: market.pair.feeTakerPct ?? null,
-        minTakeProfit: taker === null ? null : String(Number(minTargetPrice(Number(market.ask), taker, taker).toPrecision(8))),
-        sessionStats: episodeStats(state.episodes)
-      };
       const marketSummary = {
-        venue: 'Indodax',
-        marketType: 'spot',
+        ...indodaxPromptSummary(context),
         mode: 'PAPER',
-        quoteCurrency: market.pair.quote,
-        last: market.last,
-        bid: market.bid,
-        ask: market.ask,
-        observedAt: market.observedAt,
-        timeframe: '4h',
-        indicators: market.indicators,
-        candles: market.candles.slice(-40),
-        advisory,
+        advisory: { ...context.advisory, sessionStats: episodeStats(state.episodes) },
         availableCash: state.cash,
         currentPosition: position,
-        constraints: `Spot only, prices and paper budget are in ${market.pair.quote}. LONG buys and CLOSE sells only the simulated holding. SHORT, leverage and limit orders are unavailable. Maximum allocation per entry is half of remaining paper cash. Every entry must include a valid stop below ask; take profit is optional. When advisory.takerFeePct is set, paper fills pay that taker fee on both legs and a take profit below advisory.minTakeProfit is rejected.`
+        constraints: `${context.constraints} ${INDODAX_PAPER_CONSTRAINTS}`
       };
       const result = await runtime.runIndodaxPaperCycle?.({
         symbol: state.symbol,
@@ -173,7 +154,8 @@ export function mountIndodaxPaper(app: express.Express, runtime: OfficeRuntime, 
       if (startingPositionEpoch !== positionEpoch) return;
       state.lastCycleAt = Date.now();
       const verdict = result?.status === 'completed' ? result.verdict : null;
-      state.lastAction = verdict?.rejectionReason ?? verdict?.action ?? (result ? `Agent cycle incomplete${result.failures ? ` (${result.failures})` : ''}` : 'Agent cycle is unavailable');
+      const callsNote = result?.providerCalls != null ? ` [${result.providerCalls} provider calls]` : '';
+      state.lastAction = `${verdict?.rejectionReason ?? verdict?.action ?? (result ? `Agent cycle incomplete${result.failures ? ` (${result.failures})` : ''}` : 'Agent cycle is unavailable')}${callsNote}`;
 
       const fresh = await client.market(state.symbol, '4h');
       if (!state.running || controller.signal.aborted || runtime.snapshot().killed || runtime.snapshot().mode !== 'PAPER' || Date.now() - fresh.observedAt > 60_000) return;
@@ -182,7 +164,7 @@ export function mountIndodaxPaper(app: express.Express, runtime: OfficeRuntime, 
       if (!enforceDailyLossCap(fresh.bid)) return;
       if (checkStops(fresh.bid)) return;
       if (verdict?.action === 'CLOSE') { closePaperPosition(fresh.bid, 'agent CLOSE'); return; }
-      if (verdict?.action === 'OPEN_SHORT') { state.lastAction = 'Rejected: Indodax paper agent is spot-only'; return; }
+      if ((verdict?.action as string) === 'OPEN_SHORT') { state.lastAction = 'Rejected: Indodax paper agent is spot-only'; return; }
       if (position || verdict?.action !== 'OPEN_LONG' || !verdict.thesis || verdict.thesis.orderType === 'LIMIT_GTC') return;
 
       const stop = DecimalStringSchema.safeParse(verdict.thesis.stop);

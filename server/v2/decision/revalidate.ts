@@ -8,14 +8,14 @@ export interface TradeThesis {
   cycleId: string;
   accountRef: string;
   symbol: string;
-  side: 'LONG' | 'SHORT';
+  side: 'LONG';
   evidenceId: string;
   configVersion: number;
   claims: string[];
   invalidation: ThesisInvalidationPredicate[];
   stop: string;
   tp: string | null;
-  orderType: 'MARKET' | 'LIMIT_GTC';
+  orderType: 'MARKET';
   limitPrice?: string | null;
 }
 
@@ -39,7 +39,7 @@ const RevalidateInputGuardSchema = z
       cycleId: z.string().min(1),
       accountRef: z.string().min(1),
       symbol: z.string().min(1),
-      side: z.enum(['LONG', 'SHORT']),
+      side: z.enum(['LONG']),
       evidenceId: z.string().min(1),
       configVersion: z.number().int().positive(),
       claims: z.array(z.string()),
@@ -53,7 +53,7 @@ const RevalidateInputGuardSchema = z
       ),
       stop: DecimalStringSchema,
       tp: DecimalStringSchema.nullable(),
-      orderType: z.enum(['MARKET', 'LIMIT_GTC']),
+      orderType: z.enum(['MARKET']),
       limitPrice: DecimalStringSchema.nullable().optional()
     }),
     activeConfigVersion: z.number().int().positive(),
@@ -97,7 +97,7 @@ export function revalidateEntry(input: RevalidateEntryInput): EntryValidation {
   if (freshMarket.last.availability !== 'AVAILABLE' || freshMarket.last.value === null) {
     return {
       status: 'unavailable',
-      reason: freshMarket.last.reason ?? 'Canonical Bybit linear last price is unavailable',
+      reason: freshMarket.last.reason ?? 'Canonical spot last price is unavailable',
       evidenceRefs: baseRefs
     };
   }
@@ -109,13 +109,6 @@ export function revalidateEntry(input: RevalidateEntryInput): EntryValidation {
     return {
       status: 'invalidated',
       reason: `Fresh price ${lastPrice} already reached or breached LONG stop ${thesis.stop}`,
-      evidenceRefs: baseRefs
-    };
-  }
-  if (thesis.side === 'SHORT' && compareDecimals(lastPrice, thesis.stop) >= 0) {
-    return {
-      status: 'invalidated',
-      reason: `Fresh price ${lastPrice} already reached or breached SHORT stop ${thesis.stop}`,
       evidenceRefs: baseRefs
     };
   }

@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import { safe } from '../../redact.js';
-import { fenceData } from '../../untrusted.js';
 import type { ConfidenceReading, ConfidenceScale, RoleId } from '../contracts.js';
-import type { ResearchHost } from '../research/host.js';
 import {
   createOfficialProviderCaller,
   type ProviderAssignment,
@@ -11,8 +9,14 @@ import {
 } from './providers.js';
 import { buildRoleSystemPrompt } from './roles.js';
 
-export type RoleRoute = 'LOCAL' | 'GROK' | 'MIRROR_READ_ONLY';
-export type RoleStance = 'LONG' | 'SHORT' | 'HOLD' | 'CLOSE' | 'NEUTRAL';
+export type RoleRoute = 'LOCAL';
+export type RoleStance = 'LONG' | 'HOLD' | 'CLOSE' | 'NEUTRAL';
+
+// Map non-compliant SHORT/BEARISH/SELL model outputs to CLOSE when holding, or HOLD otherwise (spot-only).
+function mapNonSpotStance(raw: 'LONG' | 'SHORT' | 'HOLD' | 'CLOSE' | 'NEUTRAL', hasPosition: boolean): RoleStance {
+  if (raw === 'SHORT') return hasPosition ? 'CLOSE' : 'HOLD';
+  return raw;
+}
 
 export interface ThesisInvalidationPredicate {
   kind: 'PRICE_BELOW' | 'PRICE_ABOVE' | 'STRUCTURE_BREAK';
@@ -60,6 +64,38 @@ export interface BaseRoleResult {
   proposedOrderType?: 'MARKET' | 'LIMIT_GTC' | null;
   proposedLimitPrice?: string | null;
   errorReason?: string | null;
+  providerCalls?: number;
+}
+
+export function parseRetryAfterMs(message: string): number | null {
+  const match = message.match(/retry-after\s+([^\s;)]+)/i);
+  if (!match?.[1]) return null;
+  const raw = match[1].trim();
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(30_000, Math.max(50, Math.round(seconds * 1000)));
+  }
+  const dateMs = Date.parse(raw);
+  if (Number.isFinite(dateMs)) {
+    const delta = dateMs - Date.now();
+    return delta > 0 ? Math.min(30_000, Math.max(50, delta)) : 50;
+  }
+  return null;
+}
+
+function sleepWithSignal(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 export interface RiskRoleResult extends BaseRoleResult {
@@ -205,14 +241,11 @@ function tryParseJson(raw: string): unknown {
 }
 
 export function getRoleSchemaInstruction(role: RoleId): string {
-  const toolHint = `You may optionally call tools before your final answer by returning: {"toolCalls": [{"name": "<tool_name>", "args": {...}}]}`;
   if (role === 'risk') {
-    return `${toolHint}
-
-Respond strictly with a valid JSON object matching this schema:
+    return `Respond strictly with a valid JSON object matching this schema:
 {
   "decision": "APPROVE" | "REJECT",
-  "stance": "LONG" | "SHORT" | "HOLD" | "CLOSE" | "NEUTRAL",
+  "stance": "LONG" | "HOLD" | "CLOSE" | "NEUTRAL",
   "reasoning": "Clear explanation of risk verdict in character (max 3 sentences)",
   "confidence": { "value": 0.0 to 1.0, "scale": "probability_0_1" },
   "claimRefs": [],
@@ -221,27 +254,22 @@ Respond strictly with a valid JSON object matching this schema:
   }
 
   if (role === 'lead') {
-    return `${toolHint}
-
-Respond strictly with a valid JSON object matching this schema:
+    return `Respond strictly with a valid JSON object matching this schema:
 {
-  "stance": "LONG" | "SHORT" | "HOLD" | "CLOSE",
+  "stance": "LONG" | "HOLD" | "CLOSE",
   "reasoning": "Executive decision synthesis in character (max 3 sentences)",
   "confidence": { "value": 0.0 to 1.0, "scale": "probability_0_1" },
   "claimRefs": [],
   "contraryRefs": [],
-  "proposedStop": "optional SL price string",
+  "proposedStop": "SL price string, below the ask",
   "proposedTp": "optional TP price string",
-  "proposedOrderType": "MARKET" | "LIMIT_GTC",
-  "proposedLimitPrice": "optional limit price when LIMIT_GTC"
+  "proposedOrderType": "MARKET"
 }`;
   }
 
-  return `${toolHint}
-
-Respond strictly with a valid JSON object matching this schema:
+  return `Respond strictly with a valid JSON object matching this schema:
 {
-  "stance": "LONG" | "SHORT" | "HOLD" | "CLOSE" | "NEUTRAL",
+  "stance": "LONG" | "HOLD" | "CLOSE" | "NEUTRAL",
   "reasoning": "Analysis in character (max 3 sentences)",
   "confidence": { "value": 0.0 to 1.0, "scale": "probability_0_1" },
   "claimRefs": [],
@@ -250,24 +278,27 @@ Respond strictly with a valid JSON object matching this schema:
 }
 
 export interface RoleRunnerOptions {
-  researchHost?: ResearchHost;
   providerCaller?: ProviderCaller;
   resolveAssignment: (role: RoleId, configVersion: number) => ProviderAssignment;
+  retryBaseDelayMs?: number;
+  maxRateLimitAttempts?: number;
 }
 
 export class RoleRunner {
-  private readonly researchHost?: ResearchHost;
   private readonly providerCaller: ProviderCaller;
   private readonly resolveAssignment: (role: RoleId, configVersion: number) => ProviderAssignment;
+  private readonly retryBaseDelayMs: number;
+  private readonly maxRateLimitAttempts: number;
   private readonly activeAttempts = new Map<string, { attempt: number; abort: AbortController }>();
   private readonly acceptedResults = new Map<string, RoleResult>();
   private readonly cycleOrder: string[] = [];
   private readonly maxRetainedCycles = 20;
 
   constructor(options: RoleRunnerOptions) {
-    this.researchHost = options.researchHost;
     this.providerCaller = options.providerCaller ?? createOfficialProviderCaller();
     this.resolveAssignment = options.resolveAssignment;
+    this.retryBaseDelayMs = Math.max(0, options.retryBaseDelayMs ?? 1000);
+    this.maxRateLimitAttempts = Math.max(1, Math.min(6, options.maxRateLimitAttempts ?? 4));
   }
 
   /** Direct owner chat uses the same typed provider route as strategy roles, without a trade side effect. */
@@ -296,41 +327,7 @@ export class RoleRunner {
         provenOsSandbox: assignment.provenOsSandbox
       });
 
-      if (!this.researchHost) {
-        break;
-      }
-
-      let maybeToolObj: unknown = null;
-      try {
-        maybeToolObj = tryParseJson(rawText);
-      } catch {
-        break;
-      }
-
-      const toolParsed = ToolCallEnvelopeSchema.safeParse(maybeToolObj);
-      if (!toolParsed.success || toolParsed.data.toolCalls.length === 0) {
-        break;
-      }
-
-      const toolOutputs: unknown[] = [];
-      for (const call of toolParsed.data.toolCalls) {
-        const res = await this.researchHost.run(call, {
-          role: input.role,
-          cycleId: input.cycleId,
-          accountRef: 'chat:owner',
-          evidenceId: `chat-${input.cycleId}`
-        });
-        toolOutputs.push({
-          tool: call.name,
-          traceId: res.traceId,
-          status: res.status,
-          sourceRefs: res.sourceRefs,
-          data: res.data,
-          error: res.error
-        });
-      }
-
-      user = `${user}\n\n${fenceData('host_tool_results', toolOutputs)}`;
+      break;
     }
 
     return rawText;
@@ -391,7 +388,8 @@ export class RoleRunner {
     provider: string | null,
     model: string | null,
     toolTraceIds: string[],
-    reason: string
+    reason: string,
+    providerCalls = 0
   ): RoleResult {
     const confidence: ConfidenceReading = {
       value: null,
@@ -420,7 +418,8 @@ export class RoleRunner {
       provider,
       model,
       toolTraceIds,
-      errorReason: safe(reason)
+      errorReason: safe(reason),
+      providerCalls
     };
 
     if (task.role === 'risk') {
@@ -457,6 +456,7 @@ export class RoleRunner {
     const provider = assignment.provider.trim().toLowerCase();
     const model = assignment.model.trim();
     const toolTraceIds: string[] = [];
+    let providerCalls = 0;
 
     try {
       if (combinedSignal.aborted) {
@@ -493,8 +493,13 @@ export class RoleRunner {
         }
 
         let callError: unknown = null;
-        for (let attempt = 1; attempt <= 2; attempt++) {
+        for (let attempt = 1; attempt <= this.maxRateLimitAttempts; attempt++) {
+          const budgetLeft = Math.max(0, task.deadlineAt - Date.now());
+          if (budgetLeft <= 0 || combinedSignal.aborted) {
+            throw callError ?? new Error('Role task deadline reached before provider call');
+          }
           try {
+            providerCalls += 1;
             rawText = await this.providerCaller({
               cycleId: task.cycleId,
               role: task.role,
@@ -510,7 +515,7 @@ export class RoleRunner {
               user: userPrompt,
               retryReason: attempt > 1 ? 'output_limit' : undefined,
               signal: combinedSignal,
-              timeoutMs: remainingBudgetMs,
+              timeoutMs: budgetLeft,
               reasoningEffort: assignment.reasoningEffort,
               provenOsSandbox: assignment.provenOsSandbox
             });
@@ -519,10 +524,17 @@ export class RoleRunner {
           } catch (e) {
             callError = e;
             const msg = e instanceof Error ? e.message : String(e);
-            const isTransient = /empty output|token limit|timeout|fetch failed|rate limit|econnreset|503|502|429/i.test(msg);
-            if (attempt === 1 && isTransient && !combinedSignal.aborted) {
-              await new Promise((r) => setTimeout(r, 1000));
-              continue;
+            const isCapacityOrRate = /\b(429|503|502)\b|rate limit|all providers busy/i.test(msg);
+            const isTransient = isCapacityOrRate || /empty output|token limit|timeout|fetch failed|econnreset/i.test(msg);
+            const maxForThisError = isCapacityOrRate ? this.maxRateLimitAttempts : 2;
+            if (attempt < maxForThisError && isTransient && !combinedSignal.aborted) {
+              const retryAfterMs = parseRetryAfterMs(msg);
+              const backoffMs = this.retryBaseDelayMs * Math.pow(2, attempt - 1);
+              const waitMs = Math.min(retryAfterMs ?? backoffMs, Math.max(0, task.deadlineAt - Date.now() - 250));
+              if (waitMs > 0 || retryAfterMs === 0 || this.retryBaseDelayMs === 0) {
+                await sleepWithSignal(waitMs, combinedSignal);
+                continue;
+              }
             }
             throw e;
           }
@@ -545,43 +557,21 @@ export class RoleRunner {
           break;
         }
 
-        if (!this.researchHost) {
-          return this.makeEmptyResult(
-            task,
-            'unavailable',
-            provider,
-            model,
-            toolTraceIds,
-            'Role requested host tools while ResearchHost is unavailable'
-          );
-        }
-
-        const toolOutputs: unknown[] = [];
-        for (const call of toolParsed.data.toolCalls) {
-          const res = await this.researchHost.run(call, {
-            role: task.role,
-            cycleId: task.cycleId,
-            accountRef: task.accountRef,
-            evidenceId: task.evidenceId
-          });
-          toolTraceIds.push(res.traceId);
-          toolOutputs.push({
-            tool: call.name,
-            traceId: res.traceId,
-            status: res.status,
-            sourceRefs: res.sourceRefs,
-            data: res.data,
-            error: res.error
-          });
-        }
-
-        userPrompt = `${userPrompt}\n\n${fenceData('host_tool_results', toolOutputs)}`;
+        return this.makeEmptyResult(
+          task,
+          'unavailable',
+          provider,
+          model,
+          toolTraceIds,
+          'Role requested tools, which are not available in an Indodax cycle'
+        );
       }
 
       let parsedJson: unknown;
       try {
         parsedJson = tryParseJson(rawText);
       } catch {
+        providerCalls += 1;
         const repairedRaw = await this.providerCaller({
           cycleId: task.cycleId,
           role: task.role,
@@ -748,6 +738,10 @@ export class RoleRunner {
         reason: confValue !== null && confScale !== null ? null : 'Confidence omitted'
       };
 
+      const hasPosition = Boolean(
+        (task.promptContext as { policy?: { hasPosition?: boolean } } | undefined)?.policy?.hasPosition
+      );
+
       const baseCompleted: BaseRoleResult = {
         cycleId: task.cycleId,
         role: task.role,
@@ -759,7 +753,7 @@ export class RoleRunner {
         route: task.route,
         deadlineAt: task.deadlineAt,
         status: 'completed',
-        stance: validated.data.stance,
+        stance: mapNonSpotStance(validated.data.stance, hasPosition),
         claimRefs: validated.data.claimRefs,
         contraryRefs: validated.data.contraryRefs,
         reasoning: validated.data.reasoning,
@@ -772,7 +766,8 @@ export class RoleRunner {
         proposedTp: validated.data.proposedTp ?? null,
         proposedOrderType: validated.data.proposedOrderType ?? null,
         proposedLimitPrice: validated.data.proposedLimitPrice ?? null,
-        errorReason: null
+        errorReason: null,
+        providerCalls
       };
 
       const finalResult: RoleResult =
@@ -788,7 +783,7 @@ export class RoleRunner {
         this.activeAttempts.get(key)?.attempt !== task.taskAttempt ||
         (err instanceof Error && /cancelled/i.test(err.message))
       ) {
-        return this.makeEmptyResult(task, 'cancelled', provider, model, toolTraceIds, 'Task cancelled');
+        return this.makeEmptyResult(task, 'cancelled', provider, model, toolTraceIds, 'Task cancelled', providerCalls);
       }
       return this.makeEmptyResult(
         task,
@@ -796,7 +791,8 @@ export class RoleRunner {
         provider,
         model,
         toolTraceIds,
-        err instanceof Error ? err.message : 'Role task execution failed'
+        err instanceof Error ? err.message : 'Role task execution failed',
+        providerCalls
       );
     } finally {
       const current = this.activeAttempts.get(key);

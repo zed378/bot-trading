@@ -1,19 +1,11 @@
 import type express from 'express';
 import { z } from 'zod';
-import { INDODAX_TIMEFRAMES, type IndodaxAnalysis } from '../../../shared/indodax.js';
+import { INDODAX_TIMEFRAMES } from '../../../shared/indodax.js';
 import { IndodaxDataError, IndodaxPublicClient } from '../../market/indodax.js';
-import { ema, rsi } from '../../strategy.js';
+import { analyzeIndodax } from '../../market/indodax-analysis.js';
 import { isLocalLoopbackClient } from '../contracts.js';
 
-export async function analyzeIndodax(client: IndodaxPublicClient, symbol: string, tf: typeof INDODAX_TIMEFRAMES[number]): Promise<IndodaxAnalysis> {
-  const market = await client.market(symbol, tf);
-  const closes = market.candles.map(c => Number(c.close));
-  const ema20 = ema(closes, 20).at(-1)!;
-  const ema50 = closes.length >= 50 ? ema(closes, 50).at(-1)! : null;
-  const lastClose = closes.at(-1)!;
-  const trend = ema50 === null ? 'MIXED' : lastClose > ema20 && ema20 > ema50 ? 'BULLISH' : lastClose < ema20 && ema20 < ema50 ? 'BEARISH' : 'MIXED';
-  return { ...market, indicators: { ema20, ema50, rsi14: rsi(closes), trend } };
-}
+export { analyzeIndodax };
 
 /** A separate read-only surface prevents IDR observations entering the USDT execution ledger. */
 export function mountIndodaxRoutes(app: express.Express, client = new IndodaxPublicClient()): void {
